@@ -32,11 +32,10 @@ MediDiagnose-AI is a comprehensive medical diagnosis system that uses deep learn
 ## Images
 
 <img width="1919" height="928" alt="image" src="https://github.com/user-attachments/assets/37995f4c-a526-4e4b-a3c3-1e37e77ed5af" />
-
+<img width="1919" height="930" alt="Screenshot 2026-01-13 191722" src="https://github.com/user-attachments/assets/cc20f14c-07dd-440a-8159-378e145f4579" />
 <img width="1594" height="934" alt="Screenshot 2026-01-13 191756" src="https://github.com/user-attachments/assets/b66233be-d543-411e-8742-1db73669519c" />
 <img width="1424" height="785" alt="Screenshot 2026-01-13 191806" src="https://github.com/user-attachments/assets/ead4332e-3f42-44e4-abaa-83103e2ec28f" />
 <img width="1595" height="938" alt="Screenshot 2026-01-13 191815" src="https://github.com/user-attachments/assets/c3161229-6647-47a2-b0b2-abeb45860fb8" />
-<img width="1919" height="930" alt="Screenshot 2026-01-13 191722" src="https://github.com/user-attachments/assets/cc20f14c-07dd-440a-8159-378e145f4579" />
 <img width="1591" height="938" alt="Screenshot 2026-01-13 191733" src="https://github.com/user-attachments/assets/8d7e5941-0405-4f83-baaa-4dcf45cca92f" />
 <img width="1594" height="855" alt="Screenshot 2026-01-13 191744" src="https://github.com/user-attachments/assets/6b41577f-657a-42ce-95fa-0507bdb8b623" />
 
