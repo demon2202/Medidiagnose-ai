@@ -1,0 +1,46 @@
+{
+  "model_path": "C:\\Users\\Harsh\\OneDrive\\Desktop\\medidiagnose-ai\\ml_model\\image_validator_model.h5",
+  "input_shape": [
+    224,
+    224,
+    3
+  ],
+  "num_classes": 5,
+  "classes": {
+    "0": {
+      "code": "skin_lesion",
+      "name": "Skin Lesion/Dermoscopy",
+      "valid_for": [
+        "skin"
+      ]
+    },
+    "1": {
+      "code": "xray_chest",
+      "name": "Chest X-Ray",
+      "valid_for": [
+        "xray",
+        "pneumonia"
+      ]
+    },
+    "2": {
+      "code": "mammogram",
+      "name": "Mammogram/Breast Ultrasound",
+      "valid_for": [
+        "breast"
+      ]
+    },
+    "3": {
+      "code": "ecg",
+      "name": "ECG/Heart Scan",
+      "valid_for": [
+        "heart"
+      ]
+    },
+    "4": {
+      "code": "other",
+      "name": "Non-Medical/Unrecognized",
+      "valid_for": []
+    }
+  },
+  "accuracy": 1.0
+}

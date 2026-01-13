@@ -1,0 +1,60 @@
+{
+  "features": [
+    "radius_mean",
+    "texture_mean",
+    "perimeter_mean",
+    "area_mean",
+    "smoothness_mean",
+    "compactness_mean",
+    "concavity_mean",
+    "concave_points_mean",
+    "symmetry_mean",
+    "fractal_dimension_mean"
+  ],
+  "feature_details": {
+    "radius_mean": {
+      "description": "Mean of distances from center to points on the perimeter",
+      "type": "numeric"
+    },
+    "texture_mean": {
+      "description": "Standard deviation of gray-scale values",
+      "type": "numeric"
+    },
+    "perimeter_mean": {
+      "description": "Mean size of the core tumor",
+      "type": "numeric"
+    },
+    "area_mean": {
+      "description": "Mean area of the core tumor",
+      "type": "numeric"
+    },
+    "smoothness_mean": {
+      "description": "Mean of local variation in radius lengths",
+      "type": "numeric"
+    },
+    "compactness_mean": {
+      "description": "Mean of perimeter^2 / area - 1.0",
+      "type": "numeric"
+    },
+    "concavity_mean": {
+      "description": "Mean of severity of concave portions of the contour",
+      "type": "numeric"
+    },
+    "concave_points_mean": {
+      "description": "Mean for number of concave portions of the contour",
+      "type": "numeric"
+    },
+    "symmetry_mean": {
+      "description": "Mean symmetry of the cell",
+      "type": "numeric"
+    },
+    "fractal_dimension_mean": {
+      "description": "Mean for \"coastline approximation\" - 1",
+      "type": "numeric"
+    }
+  },
+  "classes": [
+    "Benign",
+    "Malignant"
+  ]
+}

@@ -1,0 +1,43 @@
+{
+  "model_path": "C:\\Users\\Harsh\\OneDrive\\Desktop\\medidiagnose-ai\\ml_model\\breast_cancer_model.h5",
+  "input_shape": [
+    224,
+    224,
+    1
+  ],
+  "preprocessing": "Grayscale, normalize to [0,1]",
+  "use_grayscale": true,
+  "num_classes": 3,
+  "classes": {
+    "0": {
+      "code": "normal",
+      "name": "Normal",
+      "severity": "healthy",
+      "description": "No abnormalities detected in breast tissue.",
+      "recommendation": "Continue regular screening schedule."
+    },
+    "1": {
+      "code": "benign",
+      "name": "Benign Tumor",
+      "severity": "low",
+      "description": "Non-cancerous growth detected. Common and usually not dangerous.",
+      "recommendation": "Follow-up imaging recommended. Consult with specialist."
+    },
+    "2": {
+      "code": "malignant",
+      "name": "Malignant Tumor",
+      "severity": "critical",
+      "description": "Cancerous growth detected. Immediate medical attention required.",
+      "recommendation": "Urgent consultation with oncologist required."
+    }
+  },
+  "class_names": [
+    "normal",
+    "benign",
+    "malignant"
+  ],
+  "accuracy": 0.3589743673801422,
+  "precision": 0.3741258680820465,
+  "recall": 0.34294870495796204,
+  "auc": 0.6293069124221802
+}

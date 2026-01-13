@@ -1,0 +1,128 @@
+{
+  "Fungal infection": {
+    "description": "A fungal infection is caused by fungi that can affect skin, nails, or internal organs. Common types include athlete's foot, ringworm, and yeast infections.",
+    "precautions": [
+      "Keep affected areas clean and dry",
+      "Use antifungal medication as prescribed",
+      "Avoid sharing personal items like towels",
+      "Wear breathable, loose-fitting clothing",
+      "Complete the full course of treatment"
+    ],
+    "severity": "mild",
+    "specialist": "Dermatologist"
+  },
+  "Allergy": {
+    "description": "An allergic reaction occurs when your immune system overreacts to normally harmless substances like pollen, food, or pet dander.",
+    "precautions": [
+      "Identify and avoid known allergens",
+      "Carry antihistamines for emergencies",
+      "Consider wearing a medical alert bracelet",
+      "Consult an allergist for testing",
+      "Keep your environment clean and dust-free"
+    ],
+    "severity": "mild",
+    "specialist": "Allergist/Immunologist"
+  },
+  "GERD": {
+    "description": "Gastroesophageal reflux disease occurs when stomach acid frequently flows back into the esophagus, causing heartburn and other symptoms.",
+    "precautions": [
+      "Avoid trigger foods (spicy, fatty, acidic)",
+      "Eat smaller, more frequent meals",
+      "Don't lie down immediately after eating",
+      "Elevate the head of your bed",
+      "Maintain a healthy weight"
+    ],
+    "severity": "moderate",
+    "specialist": "Gastroenterologist"
+  },
+  "Diabetes": {
+    "description": "Diabetes is a metabolic disease causing high blood sugar levels. It can lead to serious complications if not properly managed.",
+    "precautions": [
+      "Monitor blood sugar levels regularly",
+      "Follow a balanced, low-sugar diet",
+      "Exercise regularly (at least 30 min daily)",
+      "Take medications as prescribed",
+      "Get regular health checkups",
+      "Check feet daily for any wounds"
+    ],
+    "severity": "moderate",
+    "specialist": "Endocrinologist"
+  },
+  "Hypertension": {
+    "description": "High blood pressure is a condition where the force of blood against artery walls is consistently too high, increasing risk of heart disease and stroke.",
+    "precautions": [
+      "Reduce salt intake significantly",
+      "Exercise regularly (150 min/week)",
+      "Maintain a healthy weight",
+      "Limit alcohol consumption",
+      "Take blood pressure medications as prescribed",
+      "Monitor blood pressure at home"
+    ],
+    "severity": "moderate",
+    "specialist": "Cardiologist"
+  },
+  "Heart attack": {
+    "description": "A heart attack occurs when blood flow to the heart is severely reduced or blocked. This is a medical emergency requiring immediate treatment.",
+    "precautions": [
+      "CALL EMERGENCY SERVICES IMMEDIATELY (911)",
+      "Chew aspirin if not allergic (325mg)",
+      "Rest in a comfortable position",
+      "Do not drive yourself to the hospital",
+      "Stay calm and wait for help"
+    ],
+    "severity": "critical",
+    "specialist": "Cardiologist/Emergency Medicine"
+  },
+  "Pneumonia": {
+    "description": "Pneumonia is an infection that inflames the air sacs in lungs, which may fill with fluid or pus, causing cough, fever, and breathing difficulty.",
+    "precautions": [
+      "Seek immediate medical attention",
+      "Complete the full antibiotic course",
+      "Rest adequately",
+      "Stay well hydrated",
+      "Use a humidifier if helpful",
+      "Practice deep breathing exercises"
+    ],
+    "severity": "severe",
+    "specialist": "Pulmonologist"
+  },
+  "Tuberculosis": {
+    "description": "TB is a serious infectious disease that mainly affects the lungs. It spreads through airborne droplets and requires long-term treatment.",
+    "precautions": [
+      "Complete full treatment course (6-9 months)",
+      "Take medications exactly as prescribed",
+      "Cover mouth when coughing or sneezing",
+      "Ensure good ventilation in living spaces",
+      "Wear a mask around others initially",
+      "Get regular follow-up tests"
+    ],
+    "severity": "severe",
+    "specialist": "Pulmonologist/Infectious Disease Specialist"
+  },
+  "Common Cold": {
+    "description": "The common cold is a viral infection of your nose and throat. It's usually harmless and resolves within 7-10 days.",
+    "precautions": [
+      "Rest and get adequate sleep",
+      "Stay well hydrated",
+      "Use saline nasal spray",
+      "Gargle with warm salt water",
+      "Take over-the-counter remedies for symptoms",
+      "Wash hands frequently"
+    ],
+    "severity": "mild",
+    "specialist": "General Physician"
+  },
+  "Migraine": {
+    "description": "Migraine is a neurological condition causing severe, throbbing headaches often accompanied by nausea, light sensitivity, and visual disturbances.",
+    "precautions": [
+      "Identify and avoid your triggers",
+      "Maintain regular sleep patterns",
+      "Stay hydrated throughout the day",
+      "Take prescribed medications early",
+      "Rest in a dark, quiet room during attacks",
+      "Consider preventive medications"
+    ],
+    "severity": "moderate",
+    "specialist": "Neurologist"
+  }
+}

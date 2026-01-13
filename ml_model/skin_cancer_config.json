@@ -1,0 +1,69 @@
+{
+  "model_path": "C:\\Users\\Harsh\\OneDrive\\Desktop\\medidiagnose-ai\\ml_model\\skin_cancer_model.h5",
+  "input_shape": [
+    224,
+    224,
+    3
+  ],
+  "preprocessing": "RGB, normalize to [0,1]",
+  "num_classes": 7,
+  "class_names": [
+    "akiec",
+    "bcc",
+    "bkl",
+    "df",
+    "mel",
+    "nv",
+    "vasc"
+  ],
+  "class_mapping": {
+    "akiec": 0,
+    "bcc": 1,
+    "bkl": 2,
+    "df": 3,
+    "mel": 4,
+    "nv": 5,
+    "vasc": 6
+  },
+  "class_info": {
+    "0": {
+      "name": "Actinic Keratoses",
+      "type": "pre-cancerous",
+      "severity": "moderate"
+    },
+    "1": {
+      "name": "Basal Cell Carcinoma",
+      "type": "malignant",
+      "severity": "moderate"
+    },
+    "2": {
+      "name": "Benign Keratosis",
+      "type": "benign",
+      "severity": "low"
+    },
+    "3": {
+      "name": "Dermatofibroma",
+      "type": "benign",
+      "severity": "low"
+    },
+    "4": {
+      "name": "Melanoma",
+      "type": "malignant",
+      "severity": "critical"
+    },
+    "5": {
+      "name": "Melanocytic Nevi",
+      "type": "benign",
+      "severity": "low"
+    },
+    "6": {
+      "name": "Vascular Lesions",
+      "type": "benign",
+      "severity": "low"
+    }
+  },
+  "accuracy": 0.03326403349637985,
+  "precision": 0.031553398817777634,
+  "recall": 0.027027027681469917,
+  "auc": 0.4568430781364441
+}

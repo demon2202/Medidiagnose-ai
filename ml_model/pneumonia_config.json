@@ -1,0 +1,25 @@
+{
+  "model_path": "C:\\Users\\Harsh\\OneDrive\\Desktop\\medidiagnose-ai\\ml_model\\pneumonia_model.h5",
+  "input_shape": [
+    224,
+    224,
+    1
+  ],
+  "preprocessing": "Grayscale, normalize to [0,1]",
+  "num_classes": 2,
+  "class_names": [
+    "NORMAL",
+    "PNEUMONIA"
+  ],
+  "output_type": "softmax_2class",
+  "accuracy": 0.625,
+  "precision": 0.625,
+  "recall": 0.625,
+  "auc": 0.625,
+  "confusion_matrix": {
+    "TN": 0,
+    "FP": 234,
+    "FN": 0,
+    "TP": 390
+  }
+}

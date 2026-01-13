@@ -1,0 +1,215 @@
+{
+  "features": [
+    "age",
+    "sex",
+    "cp",
+    "trestbps",
+    "chol",
+    "fbs",
+    "restecg",
+    "thalach",
+    "exang",
+    "oldpeak",
+    "slope",
+    "ca",
+    "thal"
+  ],
+  "feature_details": {
+    "age": {
+      "description": "Age in years",
+      "type": "numeric",
+      "range": [
+        20,
+        100
+      ]
+    },
+    "sex": {
+      "description": "Sex (0 = Female, 1 = Male)",
+      "type": "categorical",
+      "options": [
+        0,
+        1
+      ]
+    },
+    "cp": {
+      "description": "Chest pain type",
+      "type": "categorical",
+      "options": [
+        0,
+        1,
+        2,
+        3
+      ],
+      "labels": {
+        "0": "Typical Angina",
+        "1": "Atypical Angina",
+        "2": "Non-anginal Pain",
+        "3": "Asymptomatic"
+      }
+    },
+    "trestbps": {
+      "description": "Resting blood pressure (mm Hg)",
+      "type": "numeric",
+      "range": [
+        90,
+        200
+      ]
+    },
+    "chol": {
+      "description": "Serum cholesterol (mg/dl)",
+      "type": "numeric",
+      "range": [
+        100,
+        600
+      ]
+    },
+    "fbs": {
+      "description": "Fasting blood sugar > 120 mg/dl",
+      "type": "categorical",
+      "options": [
+        0,
+        1
+      ],
+      "labels": {
+        "0": "No",
+        "1": "Yes"
+      }
+    },
+    "restecg": {
+      "description": "Resting ECG results",
+      "type": "categorical",
+      "options": [
+        0,
+        1,
+        2
+      ],
+      "labels": {
+        "0": "Normal",
+        "1": "ST-T wave abnormality",
+        "2": "Left ventricular hypertrophy"
+      }
+    },
+    "thalach": {
+      "description": "Maximum heart rate achieved",
+      "type": "numeric",
+      "range": [
+        60,
+        220
+      ]
+    },
+    "exang": {
+      "description": "Exercise induced angina",
+      "type": "categorical",
+      "options": [
+        0,
+        1
+      ],
+      "labels": {
+        "0": "No",
+        "1": "Yes"
+      }
+    },
+    "oldpeak": {
+      "description": "ST depression induced by exercise",
+      "type": "numeric",
+      "range": [
+        0,
+        7
+      ]
+    },
+    "slope": {
+      "description": "Slope of peak exercise ST segment",
+      "type": "categorical",
+      "options": [
+        0,
+        1,
+        2
+      ],
+      "labels": {
+        "0": "Upsloping",
+        "1": "Flat",
+        "2": "Downsloping"
+      }
+    },
+    "ca": {
+      "description": "Number of major vessels colored by fluoroscopy",
+      "type": "categorical",
+      "options": [
+        0,
+        1,
+        2,
+        3
+      ]
+    },
+    "thal": {
+      "description": "Thalassemia",
+      "type": "categorical",
+      "options": [
+        0,
+        1,
+        2,
+        3
+      ],
+      "labels": {
+        "0": "Normal",
+        "1": "Fixed Defect",
+        "2": "Reversible Defect",
+        "3": "Unknown"
+      }
+    }
+  },
+  "feature_importance": [
+    {
+      "feature": "cp",
+      "importance": 0.15306376370459582
+    },
+    {
+      "feature": "ca",
+      "importance": 0.11740070803484147
+    },
+    {
+      "feature": "thalach",
+      "importance": 0.1125638659176441
+    },
+    {
+      "feature": "thal",
+      "importance": 0.10890328265106045
+    },
+    {
+      "feature": "oldpeak",
+      "importance": 0.10161791566971339
+    },
+    {
+      "feature": "age",
+      "importance": 0.0880706596041336
+    },
+    {
+      "feature": "exang",
+      "importance": 0.07686024625875466
+    },
+    {
+      "feature": "chol",
+      "importance": 0.07501501758259886
+    },
+    {
+      "feature": "trestbps",
+      "importance": 0.06847678330686575
+    },
+    {
+      "feature": "slope",
+      "importance": 0.04460887336691285
+    },
+    {
+      "feature": "sex",
+      "importance": 0.028589576709470405
+    },
+    {
+      "feature": "restecg",
+      "importance": 0.016590451269932784
+    },
+    {
+      "feature": "fbs",
+      "importance": 0.008238855923475783
+    }
+  ]
+}
