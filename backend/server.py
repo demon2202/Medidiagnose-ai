@@ -1,17 +1,3 @@
-"""
-server.py - COMPLETE VERSION
-============================
-MediDiagnose-AI Backend Server - FIXED with ALL Features
-
-Features:
-✓ Image validation before analysis
-✓ Preprocessing matches trained models
-✓ All endpoints (disease, cancer, heart risk, image analysis)
-✓ Complete staging, recommendations, treatment options
-✓ Error handling and CORS
-✓ Demo mode fallbacks
-"""
-
 import warnings
 warnings.filterwarnings('ignore', category=FutureWarning)
 warnings.filterwarnings('ignore', category=DeprecationWarning)
