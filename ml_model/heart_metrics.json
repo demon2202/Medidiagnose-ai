@@ -1,0 +1,26 @@
+{
+  "Random Forest": {
+    "accuracy": 1.0,
+    "roc_auc": 1.0,
+    "f1_score": 1.0,
+    "mcc": 1.0
+  },
+  "Gradient Boosting": {
+    "accuracy": 1.0,
+    "roc_auc": 1.0,
+    "f1_score": 1.0,
+    "mcc": 1.0
+  },
+  "Logistic Regression": {
+    "accuracy": 0.8292682926829268,
+    "roc_auc": 0.9238095238095239,
+    "f1_score": 0.8430493273542601,
+    "mcc": 0.6626636659386713
+  },
+  "Ensemble": {
+    "accuracy": 1.0,
+    "roc_auc": 1.0,
+    "f1_score": 1.0,
+    "mcc": 1.0
+  }
+}

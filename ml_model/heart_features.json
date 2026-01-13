@@ -1,5 +1,5 @@
 {
-  "features": [
+  "base_features": [
     "age",
     "sex",
     "cp",
@@ -14,6 +14,30 @@
     "ca",
     "thal"
   ],
+  "engineered_features": [
+    "age",
+    "sex",
+    "cp",
+    "trestbps",
+    "chol",
+    "fbs",
+    "restecg",
+    "thalach",
+    "exang",
+    "oldpeak",
+    "slope",
+    "ca",
+    "thal",
+    "age_thalach_ratio",
+    "age_chol_interaction",
+    "bp_chol_risk",
+    "exang_oldpeak_risk",
+    "age_squared",
+    "age_group",
+    "chol_risk",
+    "hypertension",
+    "hr_reserve_pct"
+  ],
   "feature_details": {
     "age": {
       "description": "Age in years",
@@ -24,7 +48,7 @@
       ]
     },
     "sex": {
-      "description": "Sex (0 = Female, 1 = Male)",
+      "description": "Sex (0=Female, 1=Male)",
       "type": "categorical",
       "options": [
         0,
@@ -69,11 +93,7 @@
       "options": [
         0,
         1
-      ],
-      "labels": {
-        "0": "No",
-        "1": "Yes"
-      }
+      ]
     },
     "restecg": {
       "description": "Resting ECG results",
@@ -86,7 +106,7 @@
       "labels": {
         "0": "Normal",
         "1": "ST-T wave abnormality",
-        "2": "Left ventricular hypertrophy"
+        "2": "LV hypertrophy"
       }
     },
     "thalach": {
@@ -103,11 +123,7 @@
       "options": [
         0,
         1
-      ],
-      "labels": {
-        "0": "No",
-        "1": "Yes"
-      }
+      ]
     },
     "oldpeak": {
       "description": "ST depression induced by exercise",
@@ -132,7 +148,7 @@
       }
     },
     "ca": {
-      "description": "Number of major vessels colored by fluoroscopy",
+      "description": "Number of major vessels (0-3)",
       "type": "categorical",
       "options": [
         0,
@@ -158,58 +174,6 @@
       }
     }
   },
-  "feature_importance": [
-    {
-      "feature": "cp",
-      "importance": 0.15306376370459582
-    },
-    {
-      "feature": "ca",
-      "importance": 0.11740070803484147
-    },
-    {
-      "feature": "thalach",
-      "importance": 0.1125638659176441
-    },
-    {
-      "feature": "thal",
-      "importance": 0.10890328265106045
-    },
-    {
-      "feature": "oldpeak",
-      "importance": 0.10161791566971339
-    },
-    {
-      "feature": "age",
-      "importance": 0.0880706596041336
-    },
-    {
-      "feature": "exang",
-      "importance": 0.07686024625875466
-    },
-    {
-      "feature": "chol",
-      "importance": 0.07501501758259886
-    },
-    {
-      "feature": "trestbps",
-      "importance": 0.06847678330686575
-    },
-    {
-      "feature": "slope",
-      "importance": 0.04460887336691285
-    },
-    {
-      "feature": "sex",
-      "importance": 0.028589576709470405
-    },
-    {
-      "feature": "restecg",
-      "importance": 0.016590451269932784
-    },
-    {
-      "feature": "fbs",
-      "importance": 0.008238855923475783
-    }
-  ]
+  "model_type": "Random Forest",
+  "training_date": "2026-01-08T14:54:08.009354"
 }
