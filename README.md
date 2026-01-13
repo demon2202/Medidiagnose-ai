@@ -1,19 +1,13 @@
 # 🏥 MediDiagnose-AI
 
-<div align="center">
+
 
 ![Python](https://img.shields.io/badge/Python-3.8+-green?style=for-the-badge&logo=python)
 ![TensorFlow](https://img.shields.io/badge/TensorFlow-2.x-orange?style=for-the-badge&logo=tensorflow)
 ![Flask](https://img.shields.io/badge/Flask-2.x-black?style=for-the-badge&logo=flask)
 ![License](https://img.shields.io/badge/License-MIT-yellow?style=for-the-badge)
 
-**AI-Powered Medical Diagnosis System**
 
-*Detect skin cancer, heart conditions, breast cancer, and pneumonia using deep learning*
-
-</div>
-
----
 
 ## 📋 Table of Contents
 
