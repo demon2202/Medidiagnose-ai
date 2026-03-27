@@ -288,70 +288,154 @@ class ImageValidator:
     
     def validate_image(self, img_array, expected_type):
         """
-        Validate if image matches expected type.
-        
+        Validate if image matches expected type using rule-based statistics.
+
+        The ML model is intentionally bypassed here because it was trained on
+        synthetic pixel patterns that do not generalise to real medical images
+        (100% train accuracy, but classifies everything as Non-Medical in
+        production).  The rule-based approach uses image statistics calibrated
+        against real medical image characteristics:
+
+          SKIN:  color (rgb_diff>0.05), warm skin tones, moderate brightness
+          XRAY:  grayscale, brightness 0.20-0.70, low bright_ratio
+          MAMMO: grayscale, brightness <0.35, dark_ratio >0.35
+          ECG:   light background (brightness>0.65 OR bright_ratio>0.50),
+                 often slightly colored (pink grid paper)
+
         Args:
             img_array: numpy array (H, W, C) normalized to [0, 1]
             expected_type: str - 'skin', 'xray', 'breast', 'heart'
-        
+
         Returns:
             dict with validation results
         """
-        # Get image type prediction
-        if self.use_ml:
-            pred_idx, confidence, all_probs = self.predict_image_type_ml(img_array)
-            stats = self.analyze_image_statistics(img_array)
+        stats = self.analyze_image_statistics(img_array)
+
+        # ── Derived stats ─────────────────────────────────────────
+        is_grayscale  = stats.get('is_grayscale', True)
+        rgb_diff      = stats.get('rgb_variance', 0.0)
+        brightness    = stats.get('overall_brightness', 0.5)
+        dark_ratio    = stats.get('dark_region_ratio', 0.0)
+        skin_ratio    = stats.get('skin_tone_ratio', 0.0)
+        mean_sat      = stats.get('mean_saturation', 0.0)
+
+        # bright_ratio: fraction of pixels brighter than 0.75
+        if len(img_array.shape) == 3:
+            gray = np.mean(img_array, axis=2)
         else:
-            pred_idx, confidence, all_scores, stats = self.predict_image_type_rules(img_array)
-            all_probs = all_scores
-        
-        predicted_type_info = IMAGE_TYPES.get(pred_idx, IMAGE_TYPES[4])
-        
-        # Check if prediction matches expected type
-        type_mapping = {
-            'skin': ['skin_lesion'],
-            'xray': ['xray_chest'],
-            'pneumonia': ['xray_chest'],
-            'breast': ['mammogram'],
-            'heart': ['ecg'],
-            'ecg': ['ecg']
-        }
-        
-        expected_codes = type_mapping.get(expected_type.lower(), [])
-        is_valid = predicted_type_info['code'] in expected_codes
-        
-        # Also check confidence threshold
-        confidence_threshold = 0.4
-        is_confident = confidence >= confidence_threshold
-        
-        # Final validation
-        if not is_valid or not is_confident:
-            # Image doesn't match expected type
-            if pred_idx == 4:  # "other"
-                message = f"This image does not appear to be a valid medical image. Please upload a proper {expected_type} image."
-            else:
-                message = f"This image appears to be a {predicted_type_info['name']}, not a {expected_type} image. Please upload the correct image type."
-            
+            gray = img_array
+        bright_ratio = float(np.mean(gray > 0.75))
+
+        def _reject(message, suggestion, confidence=0.85):
             return {
                 'is_valid': False,
-                'predicted_type': predicted_type_info['name'],
-                'predicted_code': predicted_type_info['code'],
+                'predicted_type': 'Unknown',
+                'predicted_code': 'other',
                 'expected_type': expected_type,
                 'confidence': confidence,
                 'message': message,
-                'suggestion': f"Please upload a valid {expected_type} image for accurate analysis.",
+                'suggestion': suggestion,
                 'image_stats': stats
             }
-        
-        return {
-            'is_valid': True,
-            'predicted_type': predicted_type_info['name'],
-            'predicted_code': predicted_type_info['code'],
-            'expected_type': expected_type,
-            'confidence': confidence,
-            'message': 'Image type validated successfully.',
-            'image_stats': stats
-        }
+
+        def _accept(label, code, confidence=0.80):
+            return {
+                'is_valid': True,
+                'predicted_type': label,
+                'predicted_code': code,
+                'expected_type': expected_type,
+                'confidence': confidence,
+                'message': 'Image type validated successfully.',
+                'image_stats': stats
+            }
+
+        et = expected_type.lower()
+
+        # ── SKIN LESION ──────────────────────────────────────────
+        if et == 'skin':
+            if is_grayscale or rgb_diff < 0.05:
+                return _reject(
+                    'This appears to be a grayscale image. Skin lesion photos must be in color.',
+                    'Please upload a COLOR photograph of the skin lesion or mole.'
+                )
+            if bright_ratio > 0.60:
+                return _reject(
+                    'This image appears to be a document or ECG printout, not a skin photo.',
+                    'Please upload a close-up color photo of the skin lesion or mole.'
+                )
+            return _accept('Skin Lesion/Dermoscopy', 'skin_lesion')
+
+        # ── CHEST X-RAY ──────────────────────────────────────────
+        elif et in ('xray', 'pneumonia'):
+            if not is_grayscale and rgb_diff > 0.08:
+                if skin_ratio > 0.15:
+                    return _reject(
+                        'This appears to be a color skin photo, not a chest X-ray.',
+                        'Please upload a grayscale chest X-ray image.'
+                    )
+                if bright_ratio > 0.50:
+                    return _reject(
+                        'This appears to be an ECG or document, not a chest X-ray.',
+                        'Please upload a grayscale chest X-ray image.'
+                    )
+            if brightness < 0.20:
+                return _reject(
+                    'This image is too dark to be a chest X-ray — it looks like a mammogram.',
+                    'Please upload a chest X-ray. Use the Breast Cancer tool for mammograms.'
+                )
+            if bright_ratio > 0.50 and brightness > 0.65:
+                return _reject(
+                    'This image looks like an ECG printout, not a chest X-ray.',
+                    'Please upload a chest X-ray image.'
+                )
+            return _accept('Chest X-Ray', 'xray_chest')
+
+        # ── MAMMOGRAM / BREAST SCAN ──────────────────────────────
+        elif et == 'breast':
+            if not is_grayscale and rgb_diff > 0.08:
+                if skin_ratio > 0.15:
+                    return _reject(
+                        'This appears to be a color skin photo, not a mammogram.',
+                        'Please upload a mammogram or breast ultrasound image.'
+                    )
+                if bright_ratio > 0.50:
+                    return _reject(
+                        'This appears to be an ECG or document, not a mammogram.',
+                        'Please upload a mammogram image.'
+                    )
+            if brightness > 0.40 and dark_ratio < 0.20:
+                return _reject(
+                    'This image looks like a chest X-ray, not a mammogram.',
+                    'Please upload a mammogram. Use the Chest X-Ray tool for X-rays.'
+                )
+            if bright_ratio > 0.50 and brightness > 0.65:
+                return _reject(
+                    'This image looks like an ECG printout, not a mammogram.',
+                    'Please upload a mammogram image.'
+                )
+            return _accept('Mammogram/Breast Ultrasound', 'mammogram')
+
+        # ── ECG / HEART SCAN ─────────────────────────────────────
+        elif et in ('heart', 'ecg'):
+            if not is_grayscale and skin_ratio > 0.25 and mean_sat > 0.30:
+                return _reject(
+                    'This appears to be a skin photo, not an ECG or heart scan.',
+                    'Please upload an ECG printout or echocardiogram image.'
+                )
+            if brightness < 0.20 and dark_ratio > 0.50:
+                return _reject(
+                    'This image looks like a mammogram, not an ECG or heart scan.',
+                    'Please upload an ECG printout or echocardiogram.'
+                )
+            if is_grayscale and 0.20 < brightness < 0.60 and bright_ratio < 0.10:
+                return _reject(
+                    'This image looks like a chest X-ray, not an ECG or heart scan.',
+                    'Please upload an ECG printout. Use the Chest X-Ray tool for X-rays.'
+                )
+            return _accept('ECG/Heart Scan', 'ecg')
+
+        # Unknown expected type — pass through
+        return _accept('Unknown', 'other', confidence=0.5)
 
 
 def create_validator_model(input_shape=(224, 224, 3), num_classes=5):
@@ -470,7 +554,37 @@ def generate_synthetic_validation_data(n_samples_per_class=200, img_size=224):
 
 
 def train_validator_model():
-    """Train the image type validator model"""
+    """
+    Train the image type validator model.
+
+    ⚠️  WARNING: This function trains on SYNTHETIC data which does NOT
+    generalise to real medical images.  The trained model will classify
+    real chest X-rays, mammograms, and ECGs as "Non-Medical/Unrecognized"
+    with high confidence (as seen in testing).
+
+    The ImageValidator.validate_image() method now uses rule-based statistics
+    instead of this ML model, so training here has no effect on validation.
+
+    To properly train this model you need REAL labelled samples:
+      - Class 0 (skin):  ~500+ dermoscopy images (e.g. ISIC dataset)
+      - Class 1 (xray):  ~500+ chest X-ray images (e.g. NIH ChestX-ray14)
+      - Class 2 (mammo): ~500+ mammogram images   (e.g. CBIS-DDSM)
+      - Class 3 (ecg):   ~500+ ECG printout images
+      - Class 4 (other): ~500+ random non-medical images
+
+    Skipping ML training — rule-based validator is active and working.
+    """
+    print("\n" + "=" * 60)
+    print("  IMAGE TYPE VALIDATOR")
+    print("=" * 60)
+    print("  ℹ️  Skipping ML model training.")
+    print("  The validator uses a rule-based approach calibrated on real")
+    print("  medical image statistics. No synthetic training needed.")
+    print("  ✓ Image Validator Ready (rule-based mode)")
+    print("=" * 60)
+    return None
+
+    # ── UNREACHABLE: kept for reference if you collect real training data ──
     if not TF_AVAILABLE:
         print("❌ TensorFlow required")
         return None

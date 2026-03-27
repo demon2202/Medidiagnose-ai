@@ -11,50 +11,55 @@
     "symmetry_mean",
     "fractal_dimension_mean"
   ],
+  "num_features": 10,
   "feature_details": {
     "radius_mean": {
-      "description": "Mean of distances from center to points on the perimeter",
-      "type": "numeric"
+      "description": "Mean distance from center to perimeter",
+      "range": "6-28"
     },
     "texture_mean": {
-      "description": "Standard deviation of gray-scale values",
-      "type": "numeric"
+      "description": "Std deviation of gray-scale values",
+      "range": "9-40"
     },
     "perimeter_mean": {
-      "description": "Mean size of the core tumor",
-      "type": "numeric"
+      "description": "Mean tumor perimeter",
+      "range": "40-190"
     },
     "area_mean": {
-      "description": "Mean area of the core tumor",
-      "type": "numeric"
+      "description": "Mean tumor area",
+      "range": "140-2500"
     },
     "smoothness_mean": {
-      "description": "Mean of local variation in radius lengths",
-      "type": "numeric"
+      "description": "Local variation in radius lengths",
+      "range": "0.05-0.16"
     },
     "compactness_mean": {
-      "description": "Mean of perimeter^2 / area - 1.0",
-      "type": "numeric"
+      "description": "Perimeter\u00b2 / area - 1.0",
+      "range": "0.02-0.35"
     },
     "concavity_mean": {
-      "description": "Mean of severity of concave portions of the contour",
-      "type": "numeric"
+      "description": "Severity of concave portions",
+      "range": "0-0.43"
     },
     "concave_points_mean": {
-      "description": "Mean for number of concave portions of the contour",
-      "type": "numeric"
+      "description": "Number of concave portions",
+      "range": "0-0.20"
     },
     "symmetry_mean": {
-      "description": "Mean symmetry of the cell",
-      "type": "numeric"
+      "description": "Cell symmetry",
+      "range": "0.10-0.30"
     },
     "fractal_dimension_mean": {
-      "description": "Mean for \"coastline approximation\" - 1",
-      "type": "numeric"
+      "description": "Coastline approximation - 1",
+      "range": "0.05-0.10"
     }
   },
-  "classes": [
-    "Benign",
-    "Malignant"
-  ]
+  "classes": {
+    "0": "Benign",
+    "1": "Malignant"
+  },
+  "model_type": "Calibrated Ensemble",
+  "calibrated": true,
+  "note": "StandardScaler, 10 raw features, calibrated probabilities",
+  "training_date": "2026-03-26T22:27:40.452202"
 }

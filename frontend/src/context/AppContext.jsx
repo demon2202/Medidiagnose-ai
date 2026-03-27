@@ -1,115 +1,226 @@
-import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
+import React, { createContext, useContext, useState, useCallback, useEffect, useRef } from 'react';
+import bcrypt from 'bcryptjs';
 
-const AppContext = createContext();
+const AppContext = createContext(null);
 
-const getStoredData = (key, defaultValue) => {
+// Storage keys
+const STORAGE_KEYS = {
+  USER: 'mediDiagnose_user',
+  REGISTERED_USERS: 'mediDiagnose_registeredUsers',
+  THEME: 'mediDiagnose_theme',
+  HISTORY: 'mediDiagnose_history',
+  SETTINGS: 'mediDiagnose_settings',
+};
+
+// Helper functions for localStorage
+const getRegisteredUsers = () => {
   try {
-    const stored = localStorage.getItem(key);
-    return stored ? JSON.parse(stored) : defaultValue;
+    const data = localStorage.getItem(STORAGE_KEYS.REGISTERED_USERS);
+    return data ? JSON.parse(data) : [];
   } catch {
-    return defaultValue;
+    return [];
   }
 };
 
-const setStoredData = (key, value) => {
+const saveRegisteredUsers = (users) => {
   try {
-    localStorage.setItem(key, JSON.stringify(value));
-  } catch (error) {
-    console.error('Failed to save to localStorage:', error);
+    // Never store plain passwords - only hashed
+    const sanitized = users.map(u => {
+      const { password, ...safe } = u; // Remove plain password if exists
+      return safe;
+    });
+    localStorage.setItem(STORAGE_KEYS.REGISTERED_USERS, JSON.stringify(sanitized));
+  } catch (e) {
+    console.error('Failed to save users:', e);
   }
 };
 
-const DEFAULT_USER = {
-  id: null,
-  name: 'Guest User',
-  email: '',
-  avatar: null,
-  isAuthenticated: false,
-  createdAt: null,
+const getSavedUser = () => {
+  try {
+    const data = localStorage.getItem(STORAGE_KEYS.USER);
+    return data ? JSON.parse(data) : null;
+  } catch {
+    return null;
+  }
 };
 
-const DEFAULT_SETTINGS = {
-  darkMode: false,
-  notifications: true,
-  language: 'en',
-  autoSaveHistory: true,
+const saveUser = (userData) => {
+  try {
+    if (userData) {
+      // Never save password-related fields to session
+      const { passwordHash, password, ...safeData } = userData;
+      localStorage.setItem(STORAGE_KEYS.USER, JSON.stringify(safeData));
+    } else {
+      localStorage.removeItem(STORAGE_KEYS.USER);
+    }
+  } catch (e) {
+    console.error('Failed to save user:', e);
+  }
+};
+
+const getHistory = () => {
+  try {
+    const data = localStorage.getItem(STORAGE_KEYS.HISTORY);
+    return data ? JSON.parse(data) : [];
+  } catch {
+    return [];
+  }
+};
+
+const saveHistory = (history) => {
+  try {
+    localStorage.setItem(STORAGE_KEYS.HISTORY, JSON.stringify(history));
+  } catch (e) {
+    console.error('Failed to save history:', e);
+  }
+};
+
+const getSettings = () => {
+  try {
+    const data = localStorage.getItem(STORAGE_KEYS.SETTINGS);
+    return data ? JSON.parse(data) : {};
+  } catch {
+    return {};
+  }
+};
+
+const saveSettings = (settings) => {
+  try {
+    localStorage.setItem(STORAGE_KEYS.SETTINGS, JSON.stringify(settings));
+  } catch (e) {
+    console.error('Failed to save settings:', e);
+  }
 };
 
 export function AppProvider({ children }) {
-  const [user, setUser] = useState(() => getStoredData('medidiagnose_user', DEFAULT_USER));
-  const [isAuthenticated, setIsAuthenticated] = useState(() => getStoredData('medidiagnose_auth', false));
-  
+  // Auth state
+  const [user, setUser] = useState(null);
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [isLoading, setIsLoading] = useState(false);
+
+  // App state
+  const [theme, setThemeState] = useState(() => {
+    try {
+      return localStorage.getItem(STORAGE_KEYS.THEME) || 'light';
+    } catch {
+      return 'light';
+    }
+  });
+  const [history, setHistory] = useState(() => getHistory());
+  const [settings, setSettingsState] = useState(() => getSettings());
+
+  // UI state
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [profileModalOpen, setProfileModalOpen] = useState(false);
-  const [isLoading, setIsLoading] = useState(false);
+
+  // Notification state
   const [notification, setNotification] = useState(null);
-  
-  const [settings, setSettings] = useState(() => getStoredData('medidiagnose_settings', DEFAULT_SETTINGS));
-  
-  const [history, setHistory] = useState(() => getStoredData('medidiagnose_history', []));
+  const notificationTimer = useRef(null);
 
+  // Initialize - check for saved session
   useEffect(() => {
-    const root = document.documentElement;
-    if (settings.darkMode) {
-      root.classList.add('dark');
-    } else {
-      root.classList.remove('dark');
+    const savedUser = getSavedUser();
+    if (savedUser && savedUser.isAuthenticated) {
+      setUser(savedUser);
+      setIsAuthenticated(true);
     }
-  }, [settings.darkMode]);
+  }, []);
 
+  // Theme effect
   useEffect(() => {
-    setStoredData('medidiagnose_user', user);
-    setStoredData('medidiagnose_auth', isAuthenticated);
-  }, [user, isAuthenticated]);
+    document.documentElement.classList.toggle('dark', theme === 'dark');
+    try {
+      localStorage.setItem(STORAGE_KEYS.THEME, theme);
+    } catch {}
+  }, [theme]);
 
-  useEffect(() => {
-    setStoredData('medidiagnose_settings', settings);
-  }, [settings]);
+  // ============================================================
+  //                    NOTIFICATIONS
+  // ============================================================
 
-  useEffect(() => {
-    if (settings.autoSaveHistory) {
-      setStoredData('medidiagnose_history', history);
+  const showNotification = useCallback((message, type = 'info', duration = 4000) => {
+    if (notificationTimer.current) {
+      clearTimeout(notificationTimer.current);
     }
-  }, [history, settings.autoSaveHistory]);
+    setNotification({ message, type, id: Date.now() });
+    notificationTimer.current = setTimeout(() => {
+      setNotification(null);
+    }, duration);
+  }, []);
 
-  const getRegisteredUsers = () => {
-    return getStoredData('medidiagnose_registered_users', []);
-  };
+  const dismissNotification = useCallback(() => {
+    if (notificationTimer.current) {
+      clearTimeout(notificationTimer.current);
+    }
+    setNotification(null);
+  }, []);
 
-  const saveRegisteredUsers = (users) => {
-    setStoredData('medidiagnose_registered_users', users);
-  };
+  // Cleanup timer on unmount
+  useEffect(() => {
+    return () => {
+      if (notificationTimer.current) {
+        clearTimeout(notificationTimer.current);
+      }
+    };
+  }, []);
+
+  // ============================================================
+  //                    AUTH - SIGN IN (BCRYPT)
+  // ============================================================
 
   const signIn = useCallback(async (email, password, rememberMe = false) => {
     setIsLoading(true);
-    
+
     try {
-      await new Promise(resolve => setTimeout(resolve, 1000));
-      
+      await new Promise(resolve => setTimeout(resolve, 800));
+
       if (!email || !password) {
         throw new Error('Email and password are required');
       }
-      
+
       if (!/\S+@\S+\.\S+/.test(email)) {
         throw new Error('Please enter a valid email address');
       }
-      
+
       if (password.length < 6) {
         throw new Error('Password must be at least 6 characters');
       }
 
       const registeredUsers = getRegisteredUsers();
-      
-      const foundUser = registeredUsers.find(u => u.email.toLowerCase() === email.toLowerCase());
-      
+      const foundUser = registeredUsers.find(
+        u => u.email.toLowerCase() === email.toLowerCase()
+      );
+
       if (!foundUser) {
         throw new Error('No account found with this email. Please sign up first.');
       }
 
-      if (foundUser.password !== password) {
+      // Verify password with bcrypt
+      let isValidPassword = false;
+
+      if (foundUser.passwordHash) {
+        // New secure format
+        isValidPassword = await bcrypt.compare(password, foundUser.passwordHash);
+      } else if (foundUser.password) {
+        // Legacy plain text - migrate to hashed
+        isValidPassword = foundUser.password === password;
+        if (isValidPassword) {
+          // Migrate: hash the password and remove plain text
+          const hash = await bcrypt.hash(password, 10);
+          const userIndex = registeredUsers.findIndex(u => u.id === foundUser.id);
+          if (userIndex !== -1) {
+            registeredUsers[userIndex].passwordHash = hash;
+            delete registeredUsers[userIndex].password;
+            saveRegisteredUsers(registeredUsers);
+            console.log('Migrated user password to bcrypt hash');
+          }
+        }
+      }
+
+      if (!isValidPassword) {
         throw new Error('Incorrect password. Please try again.');
       }
-      
+
       const userData = {
         id: foundUser.id,
         name: foundUser.name,
@@ -119,26 +230,32 @@ export function AppProvider({ children }) {
         createdAt: foundUser.createdAt,
         rememberMe,
       };
-      
+
       setUser(userData);
       setIsAuthenticated(true);
+      saveUser(userData);
+
       showNotification(`Welcome back, ${foundUser.name.split(' ')[0]}!`, 'success');
-      
       return { success: true };
+
     } catch (error) {
       showNotification(error.message || 'Sign in failed', 'error');
       return { success: false, error: error.message };
     } finally {
       setIsLoading(false);
     }
-  }, []);
+  }, [showNotification]);
+
+  // ============================================================
+  //                    AUTH - SIGN UP (BCRYPT)
+  // ============================================================
 
   const signUp = useCallback(async (name, email, password) => {
     setIsLoading(true);
-    
+
     try {
-      await new Promise(resolve => setTimeout(resolve, 1200));
-      
+      await new Promise(resolve => setTimeout(resolve, 1000));
+
       if (!name || !email || !password) {
         throw new Error('All fields are required');
       }
@@ -146,11 +263,11 @@ export function AppProvider({ children }) {
       if (name.trim().length < 2) {
         throw new Error('Name must be at least 2 characters');
       }
-      
+
       if (!/\S+@\S+\.\S+/.test(email)) {
         throw new Error('Please enter a valid email address');
       }
-      
+
       if (password.length < 8) {
         throw new Error('Password must be at least 8 characters');
       }
@@ -164,24 +281,29 @@ export function AppProvider({ children }) {
       }
 
       const registeredUsers = getRegisteredUsers();
-      
-      const emailExists = registeredUsers.some(u => u.email.toLowerCase() === email.toLowerCase());
+
+      const emailExists = registeredUsers.some(
+        u => u.email.toLowerCase() === email.toLowerCase()
+      );
       if (emailExists) {
         throw new Error('An account with this email already exists. Please sign in instead.');
       }
-      
+
+      // Hash password with bcrypt (salt rounds = 10)
+      const passwordHash = await bcrypt.hash(password, 10);
+
       const newUser = {
         id: Date.now().toString(),
         name: name.trim(),
         email: email.toLowerCase().trim(),
-        password: password, 
+        passwordHash: passwordHash, // Stored hashed, never plain text
         avatar: null,
         createdAt: new Date().toISOString(),
       };
 
       registeredUsers.push(newUser);
       saveRegisteredUsers(registeredUsers);
-      
+
       const userData = {
         id: newUser.id,
         name: newUser.name,
@@ -190,79 +312,36 @@ export function AppProvider({ children }) {
         isAuthenticated: true,
         createdAt: newUser.createdAt,
       };
-      
+
       setUser(userData);
       setIsAuthenticated(true);
+      saveUser(userData);
+
       showNotification(`Welcome to MediDiagnose, ${newUser.name.split(' ')[0]}!`, 'success');
-      
       return { success: true };
+
     } catch (error) {
       showNotification(error.message || 'Sign up failed', 'error');
       return { success: false, error: error.message };
     } finally {
       setIsLoading(false);
     }
-  }, []);
+  }, [showNotification]);
+
+  // ============================================================
+  //                    AUTH - SIGN OUT
+  // ============================================================
 
   const signOut = useCallback(() => {
-    setUser(DEFAULT_USER);
+    setUser(null);
     setIsAuthenticated(false);
-    setSidebarOpen(false);
-    setProfileModalOpen(false);
+    saveUser(null);
     showNotification('Signed out successfully', 'info');
-  }, []);
+  }, [showNotification]);
 
-  const updateUser = useCallback((updates) => {
-    setUser(prev => {
-      const updated = { ...prev, ...updates };
-      
-      if (updates.email || updates.name) {
-        const registeredUsers = getRegisteredUsers();
-        const userIndex = registeredUsers.findIndex(u => u.id === prev.id);
-        if (userIndex !== -1) {
-          registeredUsers[userIndex] = {
-            ...registeredUsers[userIndex],
-            name: updates.name || registeredUsers[userIndex].name,
-            email: updates.email || registeredUsers[userIndex].email,
-          };
-          saveRegisteredUsers(registeredUsers);
-        }
-      }
-      
-      return updated;
-    });
-    showNotification('Profile updated successfully', 'success');
-  }, []);
-
-  const resetPassword = useCallback(async (email) => {
-    setIsLoading(true);
-    try {
-      await new Promise(resolve => setTimeout(resolve, 1000));
-      
-      if (!email) {
-        throw new Error('Please enter your email address');
-      }
-
-      if (!/\S+@\S+\.\S+/.test(email)) {
-        throw new Error('Please enter a valid email address');
-      }
-
-      const registeredUsers = getRegisteredUsers();
-      const userExists = registeredUsers.some(u => u.email.toLowerCase() === email.toLowerCase());
-      
-      if (!userExists) {
-        throw new Error('No account found with this email address');
-      }
-
-      showNotification('Password reset email sent! Check your inbox.', 'success');
-      return { success: true };
-    } catch (error) {
-      showNotification(error.message || 'Failed to send reset email', 'error');
-      return { success: false, error: error.message };
-    } finally {
-      setIsLoading(false);
-    }
-  }, []);
+  // ============================================================
+  //                    AUTH - CHANGE PASSWORD (BCRYPT)
+  // ============================================================
 
   const changePassword = useCallback(async (currentPassword, newPassword) => {
     setIsLoading(true);
@@ -277,129 +356,263 @@ export function AppProvider({ children }) {
         throw new Error('New password must be at least 8 characters');
       }
 
+      if (!/\d/.test(newPassword)) {
+        throw new Error('New password must contain at least one number');
+      }
+
+      if (!/[A-Z]/.test(newPassword)) {
+        throw new Error('New password must contain at least one uppercase letter');
+      }
+
+      if (currentPassword === newPassword) {
+        throw new Error('New password must be different from current password');
+      }
+
       const registeredUsers = getRegisteredUsers();
       const userIndex = registeredUsers.findIndex(u => u.id === user.id);
-      
+
       if (userIndex === -1) {
         throw new Error('User not found');
       }
 
-      if (registeredUsers[userIndex].password !== currentPassword) {
+      // Verify current password
+      let isValid = false;
+      const storedUser = registeredUsers[userIndex];
+
+      if (storedUser.passwordHash) {
+        isValid = await bcrypt.compare(currentPassword, storedUser.passwordHash);
+      } else if (storedUser.password) {
+        // Legacy format
+        isValid = storedUser.password === currentPassword;
+      }
+
+      if (!isValid) {
         throw new Error('Current password is incorrect');
       }
 
-      registeredUsers[userIndex].password = newPassword;
+      // Hash new password
+      const newPasswordHash = await bcrypt.hash(newPassword, 10);
+      registeredUsers[userIndex].passwordHash = newPasswordHash;
+      delete registeredUsers[userIndex].password; // Remove legacy field
+
       saveRegisteredUsers(registeredUsers);
 
       showNotification('Password changed successfully', 'success');
       return { success: true };
+
     } catch (error) {
       showNotification(error.message || 'Failed to change password', 'error');
       return { success: false, error: error.message };
     } finally {
       setIsLoading(false);
     }
-  }, [user]);
+  }, [user, showNotification]);
 
+  // ============================================================
+  //                    AUTH - UPDATE PROFILE
+  // ============================================================
 
-  const updateSettings = useCallback((newSettings) => {
-    setSettings(prev => ({ ...prev, ...newSettings }));
-  }, []);
+  const updateProfile = useCallback(async (updates) => {
+    setIsLoading(true);
+    try {
+      await new Promise(resolve => setTimeout(resolve, 500));
 
-  const toggleDarkMode = useCallback(() => {
-    setSettings(prev => ({ ...prev, darkMode: !prev.darkMode }));
-  }, []);
+      const registeredUsers = getRegisteredUsers();
+      const userIndex = registeredUsers.findIndex(u => u.id === user.id);
 
- 
-  const addToHistory = useCallback((item) => {
-    const newItem = {
-      id: Date.now().toString(),
-      timestamp: new Date().toISOString(),
-      ...item,
-    };
-    setHistory(prev => [newItem, ...prev]);
-  }, []);
+      if (userIndex === -1) {
+        throw new Error('User not found');
+      }
 
-  const deleteHistoryItem = useCallback((id) => {
-    setHistory(prev => prev.filter(item => item.id !== id));
-    showNotification('Item deleted', 'info');
+      // Only allow safe fields to be updated
+      const allowedFields = ['name', 'avatar', 'email'];
+      const safeUpdates = {};
+      for (const key of allowedFields) {
+        if (updates[key] !== undefined) {
+          safeUpdates[key] = updates[key];
+        }
+      }
+
+      // If email is changing, check for duplicates
+      if (safeUpdates.email && safeUpdates.email !== user.email) {
+        const emailExists = registeredUsers.some(
+          (u, idx) => idx !== userIndex && u.email.toLowerCase() === safeUpdates.email.toLowerCase()
+        );
+        if (emailExists) {
+          throw new Error('This email is already in use');
+        }
+      }
+
+      // Update user in registered users
+      registeredUsers[userIndex] = { ...registeredUsers[userIndex], ...safeUpdates };
+      saveRegisteredUsers(registeredUsers);
+
+      // Update current session
+      const updatedUser = { ...user, ...safeUpdates };
+      setUser(updatedUser);
+      saveUser(updatedUser);
+
+      showNotification('Profile updated successfully', 'success');
+      return { success: true };
+
+    } catch (error) {
+      showNotification(error.message || 'Failed to update profile', 'error');
+      return { success: false, error: error.message };
+    } finally {
+      setIsLoading(false);
+    }
+  }, [user, showNotification]);
+
+  // ============================================================
+  //                    HISTORY
+  // ============================================================
+
+  const addToHistory = useCallback((entry) => {
+    setHistory(prev => {
+      const newHistory = [
+        {
+          ...entry,
+          id: Date.now().toString(),
+          timestamp: entry.timestamp || new Date().toISOString()
+        },
+        ...prev
+      ].slice(0, 100); // Keep last 100 entries
+      saveHistory(newHistory);
+      return newHistory;
+    });
   }, []);
 
   const clearHistory = useCallback(() => {
     setHistory([]);
-    setStoredData('medidiagnose_history', []);
+    saveHistory([]);
     showNotification('History cleared', 'info');
+  }, [showNotification]);
+
+  const removeFromHistory = useCallback((id) => {
+    setHistory(prev => {
+      const newHistory = prev.filter(item => item.id !== id);
+      saveHistory(newHistory);
+      return newHistory;
+    });
   }, []);
 
-  const getStats = useCallback(() => {
-    const now = new Date();
-    const weekAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
-    
-    return {
-      totalDiagnoses: history.length,
-      symptomDiagnoses: history.filter(h => h.type === 'symptom').length,
-      imageDiagnoses: history.filter(h => h.type === 'image').length,
-      recentDiagnoses: history.filter(h => new Date(h.timestamp) >= weekAgo).length,
-      averageConfidence: history.length > 0
-        ? (history.reduce((sum, h) => sum + (h.confidence || 0), 0) / history.length * 100).toFixed(1)
-        : 0,
-    };
-  }, [history]);
+  // ============================================================
+  //                    THEME
+  // ============================================================
 
- 
-  const showNotification = useCallback((message, type = 'info', duration = 4000) => {
-    const id = Date.now();
-    setNotification({ id, message, type });
-    
-    if (duration > 0) {
-      setTimeout(() => {
-        setNotification(prev => prev?.id === id ? null : prev);
-      }, duration);
-    }
+  const setTheme = useCallback((newTheme) => {
+    setThemeState(newTheme);
   }, []);
 
-  const hideNotification = useCallback(() => {
-    setNotification(null);
+  const toggleTheme = useCallback(() => {
+    setThemeState(prev => prev === 'light' ? 'dark' : 'light');
   }, []);
+
+  const toggleDarkMode = useCallback(() => {
+    setThemeState(prev => prev === 'light' ? 'dark' : 'light');
+  }, []);
+
+  // ============================================================
+  //                    SETTINGS
+  // ============================================================
+
+  const updateSettings = useCallback((newSettings) => {
+    setSettingsState(prev => {
+      const updated = { ...prev, ...newSettings };
+      saveSettings(updated);
+      return updated;
+    });
+  }, []);
+
+  // ============================================================
+  //                    CONTEXT VALUE
+  // ============================================================
 
   const value = {
+    // Auth
     user,
     isAuthenticated,
+    isLoading,
+    setIsLoading,
     signIn,
     signUp,
     signOut,
-    updateUser,
-    resetPassword,
     changePassword,
-    
+    updateProfile,
+
+    // Theme
+    theme,
+    setTheme,
+    toggleTheme,
+    toggleDarkMode,
+
+    // UI State
     sidebarOpen,
     setSidebarOpen,
     profileModalOpen,
     setProfileModalOpen,
-    isLoading,
-    setIsLoading,
-    
-   
-    settings,
-    updateSettings,
-    toggleDarkMode,
-    
 
+    // History
     history,
     addToHistory,
-    deleteHistoryItem,
     clearHistory,
-    getStats,
-    
-    
+    removeFromHistory,
+
+    // Settings
+    settings,
+    updateSettings,
+
+    // Notifications
     notification,
     showNotification,
-    hideNotification,
+    dismissNotification,
+    hideNotification: dismissNotification, // alias used in App.jsx
+
+    // Stats (computed from history)
+    getStats: () => {
+      const oneWeekAgo = new Date();
+      oneWeekAgo.setDate(oneWeekAgo.getDate() - 7);
+      return {
+        totalDiagnoses: history.length,
+        symptomDiagnoses: history.filter(h => h.type === 'symptom').length,
+        imageDiagnoses: history.filter(h => h.type === 'image').length,
+        heartDiagnoses: history.filter(h => h.type === 'heart').length,
+        cancerDiagnoses: history.filter(h => h.type === 'cancer').length,
+        recentDiagnoses: history.filter(h => new Date(h.timestamp) >= oneWeekAgo).length,
+      };
+    },
   };
 
   return (
     <AppContext.Provider value={value}>
       {children}
+
+      {/* Notification Toast */}
+      {notification && (
+        <div className="fixed top-4 right-4 z-[9999] animate-slide-in-right max-w-sm">
+          <div className={`
+            px-4 py-3 rounded-xl shadow-2xl border flex items-start gap-3
+            ${notification.type === 'success' ? 'bg-green-50 dark:bg-green-900/40 border-green-200 dark:border-green-800 text-green-800 dark:text-green-300' :
+              notification.type === 'error' ? 'bg-red-50 dark:bg-red-900/40 border-red-200 dark:border-red-800 text-red-800 dark:text-red-300' :
+              notification.type === 'warning' ? 'bg-yellow-50 dark:bg-yellow-900/40 border-yellow-200 dark:border-yellow-800 text-yellow-800 dark:text-yellow-300' :
+              'bg-blue-50 dark:bg-blue-900/40 border-blue-200 dark:border-blue-800 text-blue-800 dark:text-blue-300'
+            }
+          `}>
+            <span className="text-lg flex-shrink-0">
+              {notification.type === 'success' ? '✅' :
+               notification.type === 'error' ? '❌' :
+               notification.type === 'warning' ? '⚠️' : 'ℹ️'}
+            </span>
+            <p className="text-sm font-medium flex-1">{notification.message}</p>
+            <button
+              onClick={dismissNotification}
+              className="text-current opacity-50 hover:opacity-100 transition-opacity flex-shrink-0"
+            >
+              ✕
+            </button>
+          </div>
+        </div>
+      )}
     </AppContext.Provider>
   );
 }

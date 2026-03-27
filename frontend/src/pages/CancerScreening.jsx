@@ -105,8 +105,15 @@ function CancerScreening() {
         setError(response.data.error || 'Failed to analyze');
       }
     } catch (err) {
-      setError('Failed to connect to the server. Please ensure the backend is running.');
       console.error('Cancer screening error:', err);
+      if (err.response) {
+        const msg = err.response.data?.error || err.response.data?.message || `Server error ${err.response.status}`;
+        setError(`Analysis failed: ${msg}`);
+      } else if (err.request) {
+        setError('Failed to connect to the server. Please ensure the backend is running on http://localhost:5000.');
+      } else {
+        setError(`Request error: ${err.message}`);
+      }
     } finally {
       setIsLoading(false);
     }

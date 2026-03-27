@@ -65,18 +65,28 @@ function HeartCheck() {
         setResult(response.data);
         addToHistory({
           type: 'heart',
-          prediction: response.data.risk_level,
+          // risk_level is now returned directly by the server ("High" / "Moderate" / "Low")
+          prediction: response.data.risk_level || response.data.prediction,
           confidence: response.data.confidence,
           probability: response.data.probability,
-          details: response.data.recommendation
+          details: response.data.recommendation,
         });
         showNotification('Heart health analysis complete', 'success');
       } else {
         setError(response.data.error || 'Failed to analyze');
       }
     } catch (err) {
-      setError('Failed to connect to the server. Please ensure the backend is running.');
       console.error('Heart check error:', err);
+      if (err.response) {
+        // Server responded with an error status (4xx / 5xx)
+        const msg = err.response.data?.error || err.response.data?.message || `Server error ${err.response.status}`;
+        setError(`Analysis failed: ${msg}`);
+      } else if (err.request) {
+        // Request was made but no response received — server truly unreachable
+        setError('Failed to connect to the server. Please ensure the backend is running on http://localhost:5000.');
+      } else {
+        setError(`Request error: ${err.message}`);
+      }
     } finally {
       setIsLoading(false);
     }

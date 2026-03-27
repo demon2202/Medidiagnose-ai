@@ -1,5 +1,5 @@
 {
-  "base_features": [
+  "features": [
     "age",
     "sex",
     "cp",
@@ -14,30 +14,7 @@
     "ca",
     "thal"
   ],
-  "engineered_features": [
-    "age",
-    "sex",
-    "cp",
-    "trestbps",
-    "chol",
-    "fbs",
-    "restecg",
-    "thalach",
-    "exang",
-    "oldpeak",
-    "slope",
-    "ca",
-    "thal",
-    "age_thalach_ratio",
-    "age_chol_interaction",
-    "bp_chol_risk",
-    "exang_oldpeak_risk",
-    "age_squared",
-    "age_group",
-    "chol_risk",
-    "hypertension",
-    "hr_reserve_pct"
-  ],
+  "num_features": 13,
   "feature_details": {
     "age": {
       "description": "Age in years",
@@ -56,20 +33,14 @@
       ]
     },
     "cp": {
-      "description": "Chest pain type",
+      "description": "Chest pain type (0-3)",
       "type": "categorical",
       "options": [
         0,
         1,
         2,
         3
-      ],
-      "labels": {
-        "0": "Typical Angina",
-        "1": "Atypical Angina",
-        "2": "Non-anginal Pain",
-        "3": "Asymptomatic"
-      }
+      ]
     },
     "trestbps": {
       "description": "Resting blood pressure (mm Hg)",
@@ -96,18 +67,13 @@
       ]
     },
     "restecg": {
-      "description": "Resting ECG results",
+      "description": "Resting ECG results (0-2)",
       "type": "categorical",
       "options": [
         0,
         1,
         2
-      ],
-      "labels": {
-        "0": "Normal",
-        "1": "ST-T wave abnormality",
-        "2": "LV hypertrophy"
-      }
+      ]
     },
     "thalach": {
       "description": "Maximum heart rate achieved",
@@ -140,12 +106,7 @@
         0,
         1,
         2
-      ],
-      "labels": {
-        "0": "Upsloping",
-        "1": "Flat",
-        "2": "Downsloping"
-      }
+      ]
     },
     "ca": {
       "description": "Number of major vessels (0-3)",
@@ -158,22 +119,17 @@
       ]
     },
     "thal": {
-      "description": "Thalassemia",
+      "description": "Thalassemia (0-3)",
       "type": "categorical",
       "options": [
         0,
         1,
         2,
         3
-      ],
-      "labels": {
-        "0": "Normal",
-        "1": "Fixed Defect",
-        "2": "Reversible Defect",
-        "3": "Unknown"
-      }
+      ]
     }
   },
   "model_type": "Random Forest",
-  "training_date": "2026-01-08T14:54:08.009354"
+  "note": "NO feature engineering \u2014 13 raw features only",
+  "training_date": "2026-03-26T21:57:01.224133"
 }

@@ -1,11 +1,11 @@
 {
-  "model_path": "C:\\Users\\Harsh\\OneDrive\\Desktop\\medidiagnose-ai\\ml_model\\breast_cancer_model.h5",
+  "model_path": "C:\\Users\\Harsh\\OneDrive\\Desktop\\Harshit\\medidiagnose-ai\\ml_model\\breast_cancer_model.h5",
   "input_shape": [
     224,
     224,
     1
   ],
-  "preprocessing": "Grayscale, normalize to [0,1]",
+  "preprocessing": "Grayscale, CLAHE, percentile normalization to [0,1]",
   "use_grayscale": true,
   "num_classes": 3,
   "classes": {
@@ -13,22 +13,19 @@
       "code": "normal",
       "name": "Normal",
       "severity": "healthy",
-      "description": "No abnormalities detected in breast tissue.",
-      "recommendation": "Continue regular screening schedule."
+      "description": "No abnormalities detected in breast tissue."
     },
     "1": {
       "code": "benign",
       "name": "Benign Tumor",
       "severity": "low",
-      "description": "Non-cancerous growth detected. Common and usually not dangerous.",
-      "recommendation": "Follow-up imaging recommended. Consult with specialist."
+      "description": "Non-cancerous growth detected."
     },
     "2": {
       "code": "malignant",
       "name": "Malignant Tumor",
       "severity": "critical",
-      "description": "Cancerous growth detected. Immediate medical attention required.",
-      "recommendation": "Urgent consultation with oncologist required."
+      "description": "Cancerous growth detected. Immediate attention required."
     }
   },
   "class_names": [
@@ -36,8 +33,27 @@
     "benign",
     "malignant"
   ],
-  "accuracy": 0.3589743673801422,
-  "precision": 0.3741258680820465,
-  "recall": 0.34294870495796204,
-  "auc": 0.6293069124221802
+  "architecture": "transfer_mobilenetv2",
+  "accuracy": 0.38473767042160034,
+  "precision": 0.0,
+  "recall": 0.0,
+  "auc": 0.5764563083648682,
+  "mean_confidence": 0.3605542480945587,
+  "confusion_matrix": [
+    [
+      62,
+      46,
+      101
+    ],
+    [
+      37,
+      98,
+      75
+    ],
+    [
+      27,
+      101,
+      82
+    ]
+  ]
 }

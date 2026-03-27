@@ -1,128 +1,380 @@
 {
   "Fungal infection": {
-    "description": "A fungal infection is caused by fungi that can affect skin, nails, or internal organs. Common types include athlete's foot, ringworm, and yeast infections.",
+    "description": "Fungi affecting skin, especially in warm moist areas.",
     "precautions": [
-      "Keep affected areas clean and dry",
-      "Use antifungal medication as prescribed",
-      "Avoid sharing personal items like towels",
-      "Wear breathable, loose-fitting clothing",
-      "Complete the full course of treatment"
-    ],
-    "severity": "mild",
-    "specialist": "Dermatologist"
+      "Keep area clean and dry",
+      "Use antifungal medications",
+      "Avoid sharing personal items",
+      "Wear breathable clothing"
+    ]
   },
   "Allergy": {
-    "description": "An allergic reaction occurs when your immune system overreacts to normally harmless substances like pollen, food, or pet dander.",
+    "description": "Immune system reacts to a foreign substance.",
     "precautions": [
-      "Identify and avoid known allergens",
-      "Carry antihistamines for emergencies",
-      "Consider wearing a medical alert bracelet",
-      "Consult an allergist for testing",
-      "Keep your environment clean and dust-free"
-    ],
-    "severity": "mild",
-    "specialist": "Allergist/Immunologist"
+      "Identify and avoid allergens",
+      "Take antihistamines",
+      "Keep emergency medication",
+      "Consult an allergist"
+    ]
   },
   "GERD": {
-    "description": "Gastroesophageal reflux disease occurs when stomach acid frequently flows back into the esophagus, causing heartburn and other symptoms.",
+    "description": "Stomach acid flows back into esophagus.",
     "precautions": [
-      "Avoid trigger foods (spicy, fatty, acidic)",
-      "Eat smaller, more frequent meals",
-      "Don't lie down immediately after eating",
-      "Elevate the head of your bed",
-      "Maintain a healthy weight"
-    ],
-    "severity": "moderate",
-    "specialist": "Gastroenterologist"
+      "Avoid trigger foods",
+      "Eat smaller meals",
+      "Do not lie down after eating",
+      "Elevate head while sleeping"
+    ]
+  },
+  "Chronic cholestasis": {
+    "description": "Bile flow from liver is reduced or blocked.",
+    "precautions": [
+      "Follow prescribed medication",
+      "Regular liver tests",
+      "Avoid alcohol",
+      "Maintain healthy diet"
+    ]
+  },
+  "Drug Reaction": {
+    "description": "Unwanted effect from medication.",
+    "precautions": [
+      "Stop the medication",
+      "Consult your doctor",
+      "Track medications you react to",
+      "Use antihistamines if recommended"
+    ]
+  },
+  "Peptic ulcer disease": {
+    "description": "Open sores on stomach or intestine lining.",
+    "precautions": [
+      "Avoid NSAIDs",
+      "Reduce stress",
+      "Avoid spicy and acidic foods",
+      "Take prescribed medications"
+    ]
+  },
+  "AIDS": {
+    "description": "HIV weakens the immune system.",
+    "precautions": [
+      "Antiretroviral therapy consistently",
+      "Regular medical checkups",
+      "Practice safe sex",
+      "Maintain good nutrition"
+    ]
   },
   "Diabetes": {
-    "description": "Diabetes is a metabolic disease causing high blood sugar levels. It can lead to serious complications if not properly managed.",
+    "description": "Blood glucose levels are too high.",
     "precautions": [
-      "Monitor blood sugar levels regularly",
-      "Follow a balanced, low-sugar diet",
-      "Exercise regularly (at least 30 min daily)",
-      "Take medications as prescribed",
-      "Get regular health checkups",
-      "Check feet daily for any wounds"
-    ],
-    "severity": "moderate",
-    "specialist": "Endocrinologist"
+      "Monitor blood sugar regularly",
+      "Follow diabetic diet",
+      "Exercise regularly",
+      "Take medications as prescribed"
+    ]
+  },
+  "Gastroenteritis": {
+    "description": "Intestinal infection with diarrhea, cramps, vomiting.",
+    "precautions": [
+      "Stay hydrated",
+      "Rest adequately",
+      "Eat bland foods",
+      "Practice good hygiene"
+    ]
+  },
+  "Bronchial Asthma": {
+    "description": "Airways narrow and swell, producing extra mucus.",
+    "precautions": [
+      "Use inhaler as prescribed",
+      "Avoid triggers",
+      "Monitor peak flow",
+      "Keep rescue inhaler handy"
+    ]
   },
   "Hypertension": {
-    "description": "High blood pressure is a condition where the force of blood against artery walls is consistently too high, increasing risk of heart disease and stroke.",
+    "description": "High blood pressure.",
     "precautions": [
-      "Reduce salt intake significantly",
-      "Exercise regularly (150 min/week)",
-      "Maintain a healthy weight",
-      "Limit alcohol consumption",
-      "Take blood pressure medications as prescribed",
-      "Monitor blood pressure at home"
-    ],
-    "severity": "moderate",
-    "specialist": "Cardiologist"
-  },
-  "Heart attack": {
-    "description": "A heart attack occurs when blood flow to the heart is severely reduced or blocked. This is a medical emergency requiring immediate treatment.",
-    "precautions": [
-      "CALL EMERGENCY SERVICES IMMEDIATELY (911)",
-      "Chew aspirin if not allergic (325mg)",
-      "Rest in a comfortable position",
-      "Do not drive yourself to the hospital",
-      "Stay calm and wait for help"
-    ],
-    "severity": "critical",
-    "specialist": "Cardiologist/Emergency Medicine"
-  },
-  "Pneumonia": {
-    "description": "Pneumonia is an infection that inflames the air sacs in lungs, which may fill with fluid or pus, causing cough, fever, and breathing difficulty.",
-    "precautions": [
-      "Seek immediate medical attention",
-      "Complete the full antibiotic course",
-      "Rest adequately",
-      "Stay well hydrated",
-      "Use a humidifier if helpful",
-      "Practice deep breathing exercises"
-    ],
-    "severity": "severe",
-    "specialist": "Pulmonologist"
-  },
-  "Tuberculosis": {
-    "description": "TB is a serious infectious disease that mainly affects the lungs. It spreads through airborne droplets and requires long-term treatment.",
-    "precautions": [
-      "Complete full treatment course (6-9 months)",
-      "Take medications exactly as prescribed",
-      "Cover mouth when coughing or sneezing",
-      "Ensure good ventilation in living spaces",
-      "Wear a mask around others initially",
-      "Get regular follow-up tests"
-    ],
-    "severity": "severe",
-    "specialist": "Pulmonologist/Infectious Disease Specialist"
-  },
-  "Common Cold": {
-    "description": "The common cold is a viral infection of your nose and throat. It's usually harmless and resolves within 7-10 days.",
-    "precautions": [
-      "Rest and get adequate sleep",
-      "Stay well hydrated",
-      "Use saline nasal spray",
-      "Gargle with warm salt water",
-      "Take over-the-counter remedies for symptoms",
-      "Wash hands frequently"
-    ],
-    "severity": "mild",
-    "specialist": "General Physician"
+      "Reduce salt intake",
+      "Exercise regularly",
+      "Maintain healthy weight",
+      "Take medications as prescribed"
+    ]
   },
   "Migraine": {
-    "description": "Migraine is a neurological condition causing severe, throbbing headaches often accompanied by nausea, light sensitivity, and visual disturbances.",
+    "description": "Severe headache, usually on one side.",
     "precautions": [
-      "Identify and avoid your triggers",
-      "Maintain regular sleep patterns",
-      "Stay hydrated throughout the day",
-      "Take prescribed medications early",
-      "Rest in a dark, quiet room during attacks",
-      "Consider preventive medications"
-    ],
-    "severity": "moderate",
-    "specialist": "Neurologist"
+      "Identify triggers",
+      "Rest in dark quiet room",
+      "Apply cold compress",
+      "Take prescribed medication early"
+    ]
+  },
+  "Cervical spondylosis": {
+    "description": "Age-related wear on neck spinal disks.",
+    "precautions": [
+      "Physical therapy",
+      "Maintain good posture",
+      "Use neck support",
+      "Regular exercise"
+    ]
+  },
+  "Paralysis (brain hemorrhage)": {
+    "description": "Loss of muscle function from brain-muscle disruption.",
+    "precautions": [
+      "Seek immediate medical attention",
+      "Physical rehabilitation",
+      "Speech therapy if needed",
+      "Regular monitoring"
+    ]
+  },
+  "Jaundice": {
+    "description": "Yellowing of skin and eyes from high bilirubin.",
+    "precautions": [
+      "Treat underlying cause",
+      "Stay hydrated",
+      "Avoid alcohol",
+      "Rest adequately"
+    ]
+  },
+  "Malaria": {
+    "description": "Parasites transmitted by infected mosquitoes.",
+    "precautions": [
+      "Complete antimalarial treatment",
+      "Use mosquito nets",
+      "Apply insect repellent",
+      "Seek immediate treatment for fever"
+    ]
+  },
+  "Chicken pox": {
+    "description": "Highly contagious disease with itchy blister rash.",
+    "precautions": [
+      "Avoid scratching",
+      "Keep cool",
+      "Use calamine lotion",
+      "Isolate to prevent spread"
+    ]
+  },
+  "Dengue": {
+    "description": "Mosquito-borne tropical disease.",
+    "precautions": [
+      "Stay hydrated",
+      "Rest completely",
+      "Monitor platelet count",
+      "Avoid mosquito bites"
+    ]
+  },
+  "Typhoid": {
+    "description": "Bacterial infection from contaminated food and water.",
+    "precautions": [
+      "Complete antibiotic course",
+      "Drink clean water",
+      "Maintain hygiene",
+      "Rest adequately"
+    ]
+  },
+  "Hepatitis A": {
+    "description": "Highly contagious liver infection.",
+    "precautions": [
+      "Get vaccinated",
+      "Practice good hygiene",
+      "Avoid contaminated food and water",
+      "Rest and stay hydrated"
+    ]
+  },
+  "Hepatitis B": {
+    "description": "Serious liver infection that can become chronic.",
+    "precautions": [
+      "Get vaccinated",
+      "Avoid sharing needles",
+      "Practice safe sex",
+      "Regular liver monitoring"
+    ]
+  },
+  "Hepatitis C": {
+    "description": "Viral infection causing liver inflammation.",
+    "precautions": [
+      "Antiviral treatment",
+      "Avoid alcohol",
+      "Regular monitoring",
+      "Avoid sharing personal items"
+    ]
+  },
+  "Hepatitis D": {
+    "description": "Liver disease that occurs only with hepatitis B.",
+    "precautions": [
+      "Treat hepatitis B",
+      "Avoid alcohol",
+      "Regular medical checkups",
+      "Antiviral medications"
+    ]
+  },
+  "Hepatitis E": {
+    "description": "Liver disease from contaminated drinking water.",
+    "precautions": [
+      "Drink clean water",
+      "Practice good hygiene",
+      "Rest adequately",
+      "Supportive care"
+    ]
+  },
+  "Alcoholic hepatitis": {
+    "description": "Liver inflammation from excessive alcohol.",
+    "precautions": [
+      "Stop drinking alcohol completely",
+      "Nutritional support",
+      "Medications as prescribed",
+      "Regular monitoring"
+    ]
+  },
+  "Tuberculosis": {
+    "description": "Serious infectious disease mainly affecting lungs.",
+    "precautions": [
+      "Complete full treatment course",
+      "Cover mouth when coughing",
+      "Isolate during infectious period",
+      "Improve ventilation"
+    ]
+  },
+  "Common Cold": {
+    "description": "Viral infection of nose and throat.",
+    "precautions": [
+      "Rest adequately",
+      "Stay hydrated",
+      "Use saline drops",
+      "Wash hands frequently"
+    ]
+  },
+  "Pneumonia": {
+    "description": "Infection inflaming air sacs in lungs.",
+    "precautions": [
+      "Complete antibiotics",
+      "Rest completely",
+      "Stay hydrated",
+      "Get vaccinated"
+    ]
+  },
+  "Dimorphic hemmorhoids(piles)": {
+    "description": "Swollen veins in lower rectum.",
+    "precautions": [
+      "Increase fiber intake",
+      "Stay hydrated",
+      "Avoid straining",
+      "Use sitz baths"
+    ]
+  },
+  "Heart attack": {
+    "description": "Blocked blood flow to heart, requires immediate treatment.",
+    "precautions": [
+      "Call emergency services immediately",
+      "Take prescribed medications",
+      "Cardiac rehabilitation",
+      "Lifestyle modifications"
+    ]
+  },
+  "Varicose veins": {
+    "description": "Twisted enlarged veins in legs.",
+    "precautions": [
+      "Exercise regularly",
+      "Elevate legs",
+      "Wear compression stockings",
+      "Maintain healthy weight"
+    ]
+  },
+  "Hypothyroidism": {
+    "description": "Thyroid does not produce enough hormones.",
+    "precautions": [
+      "Take thyroid medication daily",
+      "Regular blood tests",
+      "Maintain healthy diet",
+      "Monitor symptoms"
+    ]
+  },
+  "Hyperthyroidism": {
+    "description": "Thyroid produces too much thyroxine.",
+    "precautions": [
+      "Take prescribed medications",
+      "Regular monitoring",
+      "Avoid excessive iodine",
+      "Manage stress"
+    ]
+  },
+  "Hypoglycemia": {
+    "description": "Blood sugar lower than normal.",
+    "precautions": [
+      "Carry fast-acting sugar",
+      "Eat regular meals",
+      "Monitor blood sugar",
+      "Adjust medications as needed"
+    ]
+  },
+  "Osteoarthristis": {
+    "description": "Most common arthritis, cartilage wearing down.",
+    "precautions": [
+      "Maintain healthy weight",
+      "Exercise regularly",
+      "Physical therapy",
+      "Pain management"
+    ]
+  },
+  "Arthritis": {
+    "description": "Joint inflammation causing pain and stiffness.",
+    "precautions": [
+      "Stay active",
+      "Protect joints",
+      "Maintain healthy weight",
+      "Use heat and cold therapy"
+    ]
+  },
+  "Paroxysmal Positional Vertigo": {
+    "description": "Spinning sensation triggered by head position changes.",
+    "precautions": [
+      "Move slowly when changing positions",
+      "Avoid sudden movements",
+      "Balance exercises",
+      "Consult ENT specialist"
+    ]
+  },
+  "Acne": {
+    "description": "Skin condition from clogged hair follicles.",
+    "precautions": [
+      "Cleanse face regularly",
+      "Avoid touching face",
+      "Use non-comedogenic products",
+      "Consult dermatologist if severe"
+    ]
+  },
+  "Urinary tract infection": {
+    "description": "Infection in any part of urinary system.",
+    "precautions": [
+      "Drink plenty of water",
+      "Complete antibiotic course",
+      "Urinate frequently",
+      "Practice good hygiene"
+    ]
+  },
+  "Psoriasis": {
+    "description": "Skin disease causing red itchy scaly patches.",
+    "precautions": [
+      "Moisturize regularly",
+      "Avoid triggers",
+      "Use prescribed medications",
+      "Manage stress"
+    ]
+  },
+  "Impetigo": {
+    "description": "Contagious skin infection mainly in children.",
+    "precautions": [
+      "Keep affected area clean",
+      "Apply antibiotic ointment",
+      "Avoid touching sores",
+      "Complete treatment course"
+    ]
+  },
+  "Influenza": {
+    "description": "Viral infection affecting respiratory system.",
+    "precautions": [
+      "Get annual flu vaccine",
+      "Rest adequately",
+      "Stay hydrated",
+      "Antiviral medications if prescribed"
+    ]
   }
 }

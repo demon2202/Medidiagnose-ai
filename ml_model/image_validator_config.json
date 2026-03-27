@@ -1,5 +1,5 @@
 {
-  "model_path": "C:\\Users\\Harsh\\OneDrive\\Desktop\\medidiagnose-ai\\ml_model\\image_validator_model.h5",
+  "model_path": "C:\\Users\\Harsh\\OneDrive\\Desktop\\Harshit\\medidiagnose-ai\\ml_model\\image_validator_model.h5",
   "input_shape": [
     224,
     224,
