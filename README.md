@@ -12,8 +12,6 @@
 
 A full-stack medical AI application that combines machine learning models and deep learning to assist with symptom-based disease diagnosis, cancer screening, heart risk assessment, and medical image analysis — all from a single, unified interface.
 
-> ⚠️ **Disclaimer:** This application is for **educational purposes only**. It is not a substitute for professional medical advice, diagnosis, or treatment. Always consult a qualified healthcare professional.
-
 </div>
 
 ---
