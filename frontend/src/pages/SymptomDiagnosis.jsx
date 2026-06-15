@@ -12,6 +12,7 @@ import {
 } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import { symptoms, symptomCategories } from '../data/symptoms';
+import { config } from '../config/config';
 
 function SymptomDiagnosis() {
   const { addToHistory, isLoading, setIsLoading } = useApp();
@@ -47,7 +48,7 @@ function SymptomDiagnosis() {
     setResult(null);
 
     try {
-      const response = await axios.post('http://localhost:5000/predict-disease', {
+      const response = await axios.post(`${config.api.baseURL}/predict-disease`, {
         symptoms: selectedSymptoms,
       });
 
@@ -106,7 +107,7 @@ function SymptomDiagnosis() {
         setError(err.response.data?.error || 'Server error occurred');
       } else if (err.request) {
         // Request made but no response
-        setError('Failed to connect to the server. Please ensure the backend is running on http://localhost:5000');
+        setError(`Failed to connect to the server. Please ensure the backend is running on ${config.api.baseURL}`);
       } else {
         // Error in request setup
         setError('An unexpected error occurred');

@@ -12,6 +12,7 @@ import {
   FileText
 } from 'lucide-react';
 import { useApp } from '../context/AppContext';
+import { config } from '../config/config';
 
 function CancerScreening() {
   const { addToHistory, isLoading, setIsLoading, showNotification } = useApp();
@@ -87,7 +88,7 @@ function CancerScreening() {
         numericData[key] = parseFloat(value);
       }
 
-      const response = await axios.post('http://localhost:5000/predict-cancer', numericData);
+      const response = await axios.post(`${config.api.baseURL}/predict-cancer`, numericData);
 
       if (response.data.success) {
         setResult(response.data);
@@ -110,7 +111,7 @@ function CancerScreening() {
         const msg = err.response.data?.error || err.response.data?.message || `Server error ${err.response.status}`;
         setError(`Analysis failed: ${msg}`);
       } else if (err.request) {
-        setError('Failed to connect to the server. Please ensure the backend is running on http://localhost:5000.');
+        setError(`Failed to connect to the server. Please ensure the backend is running on ${config.api.baseURL}.`);
       } else {
         setError(`Request error: ${err.message}`);
       }

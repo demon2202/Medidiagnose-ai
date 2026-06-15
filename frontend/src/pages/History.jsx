@@ -291,8 +291,8 @@ function History() {
         </div>
       ) : (
         <div className="space-y-4">
-          {filteredHistory.map((item, index) => (
-            <div key={index} className="card hover:shadow-lg transition-shadow">
+          {filteredHistory.map((item) => (
+            <div key={item.id} className="card hover:shadow-lg transition-shadow">
               <div className="flex items-start gap-4">
                 {/* Icon */}
                 <div className="flex-shrink-0">

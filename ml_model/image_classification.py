@@ -12,13 +12,13 @@ try:
     from tensorflow import keras
     from tensorflow.keras import layers, models, regularizers
     from tensorflow.keras.preprocessing.image import ImageDataGenerator
-    from tensorflow.keras.callbacks import EarlyStopping, ModelCheckpoint, ReduceLROnPlateau
+    from tensorflow.keras.callbacks import EarlyStopping, ModelCheckpoint, ReduceLROnPlateau, LearningRateScheduler
     from tensorflow.keras.optimizers import Adam
     from tensorflow.keras.utils import to_categorical
     TF_AVAILABLE = True
-    print(f"✓ TensorFlow {tf.__version__} available")
+    print(f"[OK] TensorFlow {tf.__version__} available")
 except ImportError:
-    print("✗ TensorFlow not available — install with: pip install tensorflow")
+    print("[ERR] TensorFlow not available — install with: pip install tensorflow")
 
 from PIL import Image
 import glob
@@ -229,7 +229,10 @@ PNEUMONIA_SEVERITY_DATA = {
 # ══════════════════════════════════════════════════════════════════════════════
 
 def preprocess_image_for_skin(image_path_or_array, img_size=224):
-    """Preprocess for skin model — RGB, [0,1], shape (1, H, W, 3)."""
+    """Preprocess for skin model — RGB, [0,1], shape (1, H, W, 3).
+    Note: The model contains a built-in Lambda layer that rescales [0,1] -> [-1,1]
+    for MobileNetV2. No external rescaling needed.
+    """
     if isinstance(image_path_or_array, str):
         img = Image.open(image_path_or_array)
     elif isinstance(image_path_or_array, np.ndarray):
@@ -247,7 +250,10 @@ def preprocess_image_for_skin(image_path_or_array, img_size=224):
 
 
 def preprocess_image_for_pneumonia(image_path_or_array, img_size=224):
-    """Preprocess for pneumonia model — Grayscale, [0,1], shape (1, H, W, 1)."""
+    """Preprocess for pneumonia model — Grayscale, [0,1], shape (1, H, W, 1).
+    Note: The model contains a built-in Lambda layer that rescales [0,1] -> [-1,1]
+    for MobileNetV2. No external rescaling needed.
+    """
     if isinstance(image_path_or_array, str):
         img = Image.open(image_path_or_array)
     elif isinstance(image_path_or_array, np.ndarray):
@@ -480,11 +486,18 @@ def get_demo_pneumonia_result(image_path_or_array=None):
 def create_skin_model(input_shape=(224, 224, 3), num_classes=7):
     """
     Skin cancer model — MobileNetV2 transfer learning.
-    Input:  RGB (224, 224, 3)
-    Output: softmax over 7 classes
+    Input:  RGB (224, 224, 3) in [0, 1] range.
+    Output: softmax over 7 classes.
+
+    Note: Scale input to [-1, 1] range for MobileNetV2 pretrained weights.
+    clipnorm=1.0 on Adam prevents val_loss explosion from unconstrained head gradients.
+
     Returns: (model, base_model_reference_for_finetuning)
     """
     inputs = layers.Input(shape=input_shape, name='skin_input')
+    
+    # Scale inputs from [0, 1] to [-1, 1] for MobileNetV2
+    x = layers.Lambda(lambda val: val * 2.0 - 1.0)(inputs)
 
     base_model = keras.applications.MobileNetV2(
         input_shape=input_shape,
@@ -493,43 +506,26 @@ def create_skin_model(input_shape=(224, 224, 3), num_classes=7):
     )
     base_model.trainable = False          # frozen for phase 1
 
-    x = base_model(inputs, training=False)
+    x = base_model(x, training=False)
     x = layers.GlobalAveragePooling2D()(x)
-    x = layers.BatchNormalization()(x)
-
-    x = layers.Dense(512, kernel_regularizer=regularizers.l2(0.01))(x)
-    x = layers.BatchNormalization()(x)
-    x = layers.Activation('relu')(x)
-    x = layers.Dropout(0.5)(x)
-
-    x = layers.Dense(256, kernel_regularizer=regularizers.l2(0.01))(x)
-    x = layers.BatchNormalization()(x)
-    x = layers.Activation('relu')(x)
-    x = layers.Dropout(0.4)(x)
-
-    x = layers.Dense(128, kernel_regularizer=regularizers.l2(0.01))(x)
-    x = layers.BatchNormalization()(x)
-    x = layers.Activation('relu')(x)
-    x = layers.Dropout(0.3)(x)
-
+    x = layers.Dropout(0.35)(x)
     outputs = layers.Dense(num_classes, activation='softmax')(x)
 
     model = models.Model(inputs, outputs, name='skin_mobilenetv2')
     return model, base_model
 
 
+
 def create_pneumonia_model(input_shape=(224, 224, 1), num_classes=2):
     """
     Pneumonia model — MobileNetV2 transfer learning.
 
-    KEY FIX: The old custom CNN couldn't learn good features and
-    defaulted to predicting "pneumonia" for everything.
-
     This model:
       1. Takes GRAYSCALE input (224, 224, 1) — compatible with server.py
       2. Internally replicates to 3 channels for MobileNetV2
-      3. Uses pretrained ImageNet features → much better accuracy
-      4. Standard categorical_crossentropy → loads without issues
+      3. Lambda layer rescales [0,1] -> [-1,1] to match MobileNetV2 training
+      4. GAP -> Dropout(0.3) -> Dense(2)
+      5. Standard categorical_crossentropy → loads without issues
 
     Returns: (model, base_model_reference_for_finetuning)
     """
@@ -537,6 +533,9 @@ def create_pneumonia_model(input_shape=(224, 224, 1), num_classes=2):
 
     # ── Replicate grayscale → 3 channels for pretrained backbone ────────
     x = layers.Concatenate()([gray_input, gray_input, gray_input])
+
+    # ── Scale input to [-1, 1] for MobileNetV2 ──────────────────────────
+    x = layers.Lambda(lambda val: val * 2.0 - 1.0)(x)
 
     base_model = keras.applications.MobileNetV2(
         input_shape=(input_shape[0], input_shape[1], 3),
@@ -547,18 +546,7 @@ def create_pneumonia_model(input_shape=(224, 224, 1), num_classes=2):
 
     x = base_model(x, training=False)
     x = layers.GlobalAveragePooling2D()(x)
-    x = layers.BatchNormalization()(x)
-
-    x = layers.Dense(256, kernel_regularizer=regularizers.l2(0.01))(x)
-    x = layers.BatchNormalization()(x)
-    x = layers.Activation('relu')(x)
-    x = layers.Dropout(0.5)(x)
-
-    x = layers.Dense(128, kernel_regularizer=regularizers.l2(0.01))(x)
-    x = layers.BatchNormalization()(x)
-    x = layers.Activation('relu')(x)
     x = layers.Dropout(0.3)(x)
-
     outputs = layers.Dense(num_classes, activation='softmax')(x)
 
     model = models.Model(gray_input, outputs, name='pneumonia_mobilenetv2')
@@ -749,6 +737,16 @@ def load_chest_xray_data(img_size=224):
 #                         TRAINING FUNCTIONS
 # ══════════════════════════════════════════════════════════════════════════════
 
+def cosine_decay_with_warmup(epoch, total_epochs=50, warmup_epochs=5,
+                              initial_lr=0.001, min_lr=1e-6):
+    """Cosine decay learning rate with linear warmup."""
+    if epoch < warmup_epochs:
+        return initial_lr * (epoch + 1) / warmup_epochs
+    else:
+        progress = (epoch - warmup_epochs) / (total_epochs - warmup_epochs)
+        return min_lr + 0.5 * (initial_lr - min_lr) * (1 + np.cos(np.pi * progress))
+
+
 def train_skin_cancer_model(max_samples_per_class=1500):
     """
     Train skin cancer detection: MobileNetV2 transfer learning, two-phase.
@@ -772,7 +770,7 @@ def train_skin_cancer_model(max_samples_per_class=1500):
     model, base_model = create_skin_model((IMG_SIZE, IMG_SIZE, 3), 7)
 
     model.compile(
-        optimizer=Adam(learning_rate=0.001),
+        optimizer=Adam(learning_rate=0.001, clipnorm=1.0),
         loss='categorical_crossentropy',
         metrics=['accuracy',
                  keras.metrics.Precision(name='precision'),
@@ -789,15 +787,16 @@ def train_skin_cancer_model(max_samples_per_class=1500):
         horizontal_flip=True,
         vertical_flip=True,
         zoom_range=0.2,
-        shear_range=0.1,
+        shear_range=0.15,
         fill_mode='reflect',
-        brightness_range=[0.8, 1.2]
+        brightness_range=[0.8, 1.2],
+        channel_shift_range=0.1
     )
 
     callbacks = [
-        EarlyStopping(monitor='val_auc', mode='max', patience=10,
+        EarlyStopping(monitor='val_auc', mode='max', patience=7,
                       restore_best_weights=True, verbose=1),
-        ReduceLROnPlateau(monitor='val_loss', factor=0.5, patience=5,
+        ReduceLROnPlateau(monitor='val_loss', factor=0.5, patience=3,
                           min_lr=1e-7, verbose=1),
         ModelCheckpoint(SKIN_MODEL_PATH, monitor='val_auc', mode='max',
                         save_best_only=True, verbose=1)
@@ -807,17 +806,17 @@ def train_skin_cancer_model(max_samples_per_class=1500):
     print("\n🚀 Phase 1 — Training classification head (backbone frozen)...")
     model.fit(
         datagen.flow(X_train, y_train, batch_size=32),
-        epochs=25,
+        epochs=15,
         validation_data=(X_test, y_test),
         callbacks=callbacks,
         class_weight=cw_dict,
         verbose=1
     )
 
-    # ── Phase 2: Fine-tune last 30 layers ───────────────────────────────
-    print("\n🚀 Phase 2 — Fine-tuning last 30 backbone layers...")
+    # ── Phase 2: Fine-tune last 60 layers ───────────────────────────────
+    print("\n🚀 Phase 2 — Fine-tuning last 60 backbone layers...")
     base_model.trainable = True
-    for layer in base_model.layers[:-30]:
+    for layer in base_model.layers[:-60]:
         layer.trainable = False
 
     model.compile(
@@ -830,9 +829,9 @@ def train_skin_cancer_model(max_samples_per_class=1500):
     )
 
     callbacks_ft = [
-        EarlyStopping(monitor='val_auc', mode='max', patience=8,
+        EarlyStopping(monitor='val_auc', mode='max', patience=5,
                       restore_best_weights=True, verbose=1),
-        ReduceLROnPlateau(monitor='val_loss', factor=0.5, patience=4,
+        ReduceLROnPlateau(monitor='val_loss', factor=0.5, patience=2,
                           min_lr=1e-8, verbose=1),
         ModelCheckpoint(SKIN_MODEL_PATH, monitor='val_auc', mode='max',
                         save_best_only=True, verbose=1)
@@ -840,7 +839,7 @@ def train_skin_cancer_model(max_samples_per_class=1500):
 
     model.fit(
         datagen.flow(X_train, y_train, batch_size=32),
-        epochs=15,
+        epochs=10,
         validation_data=(X_test, y_test),
         callbacks=callbacks_ft,
         class_weight=cw_dict,
@@ -876,7 +875,7 @@ def train_skin_cancer_model(max_samples_per_class=1500):
 
     # ── Save ────────────────────────────────────────────────────────────
     model.save(SKIN_MODEL_PATH)
-    print(f"\n✓ Model saved: {SKIN_MODEL_PATH}")
+    print(f"\n[OK] Model saved: {SKIN_MODEL_PATH}")
 
     config = {
         'model_path': SKIN_MODEL_PATH,
@@ -893,9 +892,9 @@ def train_skin_cancer_model(max_samples_per_class=1500):
     }
     with open(SKIN_CONFIG_PATH, 'w') as f:
         json.dump(config, f, indent=2)
-    print(f"✓ Config saved: {SKIN_CONFIG_PATH}")
+    print(f"[OK] Config saved: {SKIN_CONFIG_PATH}")
 
-    print("\n  ⚠️  Restart server.py to load the new model!")
+    print("\n  [WARN] Restart server.py to load the new model!")
     return model
 
 
@@ -914,8 +913,8 @@ def train_pneumonia_model():
         print("❌ TensorFlow required"); return None
 
     print("\n" + "=" * 70)
-    print("  PNEUMONIA MODEL — MobileNetV2 Transfer Learning")
-    print("  (Grayscale input → internal 3-channel conversion)")
+    print("  PNEUMONIA MODEL - MobileNetV2 Transfer Learning")
+    print("  (Grayscale input -> internal 3-channel conversion)")
     print("=" * 70)
 
     data = load_chest_xray_data(IMG_SIZE)
@@ -933,7 +932,7 @@ def train_pneumonia_model():
     model, base_model = create_pneumonia_model((IMG_SIZE, IMG_SIZE, 1), 2)
 
     model.compile(
-        optimizer=Adam(learning_rate=0.001),
+        optimizer=Adam(learning_rate=0.001, clipnorm=1.0),
         loss='categorical_crossentropy',
         metrics=['accuracy',
                  keras.metrics.Precision(name='precision'),
@@ -955,9 +954,9 @@ def train_pneumonia_model():
     )
 
     callbacks = [
-        EarlyStopping(monitor='val_auc', mode='max', patience=8,
+        EarlyStopping(monitor='val_auc', mode='max', patience=7,
                       restore_best_weights=True, verbose=1),
-        ReduceLROnPlateau(monitor='val_loss', factor=0.5, patience=4,
+        ReduceLROnPlateau(monitor='val_loss', factor=0.5, patience=3,
                           min_lr=1e-7, verbose=1),
         ModelCheckpoint(PNEUMONIA_MODEL_PATH, monitor='val_auc', mode='max',
                         save_best_only=True, verbose=1)
@@ -967,17 +966,17 @@ def train_pneumonia_model():
     print("\n🚀 Phase 1 — Training classification head (backbone frozen)...")
     model.fit(
         datagen.flow(X_train, y_train, batch_size=32),
-        epochs=20,
+        epochs=15,
         validation_data=(X_test, y_test),
         callbacks=callbacks,
         class_weight=cw_dict,
         verbose=1
     )
 
-    # ── Phase 2: Fine-tune last 30 layers ───────────────────────────────
-    print("\n🚀 Phase 2 — Fine-tuning last 30 backbone layers...")
+    # ── Phase 2: Fine-tune last 60 layers ───────────────────────────────
+    print("\n🚀 Phase 2 — Fine-tuning last 60 backbone layers...")
     base_model.trainable = True
-    for layer in base_model.layers[:-30]:
+    for layer in base_model.layers[:-60]:
         layer.trainable = False
 
     model.compile(
@@ -990,9 +989,9 @@ def train_pneumonia_model():
     )
 
     callbacks_ft = [
-        EarlyStopping(monitor='val_auc', mode='max', patience=6,
+        EarlyStopping(monitor='val_auc', mode='max', patience=5,
                       restore_best_weights=True, verbose=1),
-        ReduceLROnPlateau(monitor='val_loss', factor=0.5, patience=3,
+        ReduceLROnPlateau(monitor='val_loss', factor=0.5, patience=2,
                           min_lr=1e-8, verbose=1),
         ModelCheckpoint(PNEUMONIA_MODEL_PATH, monitor='val_auc', mode='max',
                         save_best_only=True, verbose=1)
@@ -1039,13 +1038,13 @@ def train_pneumonia_model():
         true_label = 'Normal' if y_test_int[i] == 0 else 'Pneumonia'
         pred_label = 'Normal' if np.argmax(sample_pred[i]) == 0 else 'Pneumonia'
         conf = np.max(sample_pred[i])
-        status = '✓' if true_label == pred_label else '✗'
+        status = 'OK' if true_label == pred_label else 'FAIL'
         print(f"    {status} True: {true_label:10s}  Pred: {pred_label:10s}  "
               f"Conf: {conf:.4f}  (N={sample_pred[i][0]:.3f} P={sample_pred[i][1]:.3f})")
 
     # ── Save ────────────────────────────────────────────────────────────
     model.save(PNEUMONIA_MODEL_PATH)
-    print(f"\n✓ Model saved: {PNEUMONIA_MODEL_PATH}")
+    print(f"\n[OK] Model saved: {PNEUMONIA_MODEL_PATH}")
 
     config = {
         'model_path': PNEUMONIA_MODEL_PATH,
@@ -1067,9 +1066,9 @@ def train_pneumonia_model():
     }
     with open(PNEUMONIA_CONFIG_PATH, 'w') as f:
         json.dump(config, f, indent=2)
-    print(f"✓ Config saved: {PNEUMONIA_CONFIG_PATH}")
+    print(f"[OK] Config saved: {PNEUMONIA_CONFIG_PATH}")
 
-    print("\n  ⚠️  Restart server.py to load the new model!")
+    print("\n  [WARN] Restart server.py to load the new model!")
     return model
 
 
@@ -1095,7 +1094,16 @@ def main():
     print("  3. Both models")
     print("  4. Exit")
 
-    choice = input("\nChoice (1-4): ").strip()
+    import sys
+    choice = '3'
+    if len(sys.argv) > 1:
+        choice = sys.argv[1].strip()
+        print(f"Using CLI choice: {choice}")
+    elif not sys.stdin.isatty():
+        print("Non-interactive stdin detected. Training both models by default.")
+        choice = '3'
+    else:
+        choice = input("\nChoice (1-4): ").strip()
 
     if choice == '1':
         train_skin_cancer_model()
@@ -1109,8 +1117,8 @@ def main():
         return
 
     print("\n" + "=" * 70)
-    print("  ✅ Training Complete!")
-    print("  ⚠️  Restart server.py to load new models")
+    print("  [OK] Training Complete!")
+    print("  [WARN] Restart server.py to load new models")
     print("=" * 70)
 
 

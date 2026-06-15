@@ -12,17 +12,23 @@
     "mcc": 1.0
   },
   "Logistic Regression": {
-    "accuracy": 0.8097560975609757,
-    "roc_auc": 0.9303809523809523,
-    "f1_score": 0.8311688311688312,
-    "mcc": 0.630908308763638
+    "accuracy": 0.8146341463414634,
+    "roc_auc": 0.9260952380952382,
+    "f1_score": 0.8362068965517241,
+    "mcc": 0.642240203819111
   },
   "Ensemble": {
     "accuracy": 1.0,
-    "roc_auc": 0.9999999999999999,
+    "roc_auc": 1.0,
+    "f1_score": 1.0,
+    "mcc": 1.0
+  },
+  "Calibrated Ensemble": {
+    "accuracy": 1.0,
+    "roc_auc": 1.0,
     "f1_score": 1.0,
     "mcc": 1.0
   },
   "best_model": "Random Forest",
-  "cv_mean_auc": 0.9961010575116124
+  "cv_mean_auc": 0.9986904761904762
 }

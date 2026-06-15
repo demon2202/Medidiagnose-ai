@@ -527,6 +527,17 @@ def load_dataset():
     else:
         df = generate_dataset(dataset_path)
 
+    # Standardize disease names (remove typos, trailing spaces, case inconsistencies)
+    disease_mapping = {
+        'Peptic ulcer diseae': 'Peptic ulcer disease',
+        'Diabetes ': 'Diabetes',
+        'Hypertension ': 'Hypertension',
+        'hepatitis A': 'Hepatitis A',
+        'Osteoarthristis': 'Osteoarthritis',
+        '(vertigo) Paroymsal  Positional Vertigo': 'Paroxysmal Positional Vertigo'
+    }
+    df['Disease'] = df['Disease'].replace(disease_mapping)
+
     # Find symptom columns
     symptom_cols = [c for c in df.columns if 'symptom' in c.lower()]
 
@@ -602,18 +613,10 @@ def train_ensemble(X, y, symptom_list):
     )
     print(f"   Train: {len(X_train)}, Test: {len(X_test)}")
 
-    # Feature selection (only if many features)
+    # Feature selection (removed to keep all symptoms)
     fs = None
     selected_symptom_list = symptom_list
 
-    if len(symptom_list) > 60:
-        k = min(100, int(len(symptom_list) * 0.75))
-        fs = SelectKBest(chi2, k=k)
-        X_train = fs.fit_transform(X_train, y_train)
-        X_test = fs.transform(X_test)
-        selected_indices = fs.get_support(indices=True)
-        selected_symptom_list = [symptom_list[i] for i in selected_indices]
-        print(f"   Feature selection: {len(symptom_list)} → {k} features")
 
     # --- Build ensemble ---
     # These are the same classifiers your original code used

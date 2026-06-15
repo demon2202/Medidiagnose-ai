@@ -225,6 +225,9 @@ DISEASE_INFO = {
     'Urinary tract infection': {'description': 'Bacterial infection affecting any part of the urinary system.', 'precautions': ['Complete the antibiotic course', 'Drink 8+ glasses of water daily', 'Urinate frequently (do not hold)', 'Maintain good perineal hygiene']},
     'Psoriasis': {'description': 'Chronic autoimmune skin condition causing rapid skin cell buildup and scaling.', 'precautions': ['Moisturize regularly', 'Use prescribed topical steroids or biologics', 'Avoid triggers (stress, infections)', 'Regular dermatology follow-up']},
     'Impetigo': {'description': 'Highly contagious bacterial skin infection causing sores and blisters.', 'precautions': ['Apply prescribed antibiotic cream', 'Keep sores clean and covered', 'Avoid touching or scratching sores', 'Wash hands and personal items frequently']},
+    'Acne': {'description': 'Skin condition from clogged hair follicles.', 'precautions': ['Cleanse face regularly', 'Avoid touching face', 'Use non-comedogenic products', 'Consult dermatologist if severe']},
+    'Influenza': {'description': 'Viral infection affecting respiratory system.', 'precautions': ['Get annual flu vaccine', 'Rest adequately', 'Stay hydrated', 'Antiviral medications if prescribed']},
+    'Paroxysmal Positional Vertigo': {'description': 'Spinning sensation triggered by head position changes.', 'precautions': ['Move slowly when changing positions', 'Avoid sudden movements', 'Balance exercises', 'Consult ENT specialist']}
 }
 
 DEMO_SYMPTOMS = [

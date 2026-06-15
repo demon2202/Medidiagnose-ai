@@ -287,16 +287,17 @@
 
   /* ========== CARDS ========== */
   .card {
-    background-color: rgb(var(--card-bg));
-    border: 1px solid rgb(var(--card-border));
-    border-radius: 1rem;
+    background: rgb(var(--card-bg) / 0.75);
+    backdrop-filter: blur(16px) saturate(120%);
+    border: 1px solid rgb(var(--card-border) / 0.5);
+    border-radius: 1.25rem;
     padding: 1.5rem;
-    box-shadow: 0 1px 3px 0 rgba(var(--shadow-color), var(--shadow-opacity));
-    transition: all 0.2s ease;
+    box-shadow: 0 4px 30px rgba(0, 0, 0, 0.02);
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
   }
 
   .card:hover {
-    box-shadow: 0 4px 6px -1px rgba(var(--shadow-color), var(--shadow-opacity));
+    box-shadow: 0 10px 30px rgba(var(--shadow-color), calc(var(--shadow-opacity) * 1.5));
   }
 
   .card-interactive {
@@ -304,13 +305,13 @@
   }
 
   .card-interactive:hover {
-    transform: translateY(-2px);
-    box-shadow: 0 10px 25px -5px rgba(var(--shadow-color), 0.15);
-    border-color: rgb(var(--color-primary-300));
+    transform: translateY(-4px) scale(1.01);
+    box-shadow: 0 20px 40px -10px rgba(var(--shadow-color), 0.2);
+    border-color: rgb(var(--color-primary-400) / 0.6);
   }
 
   .dark .card-interactive:hover {
-    border-color: rgb(var(--color-primary-600));
+    border-color: rgb(var(--color-primary-500) / 0.6);
   }
 
   .stat-card {
@@ -340,10 +341,11 @@
     padding: 0.75rem 1rem;
     font-size: 0.9375rem;
     border-radius: 0.75rem;
-    border: 2px solid rgb(var(--input-border));
-    background-color: rgb(var(--input-bg));
+    border: 2px solid rgb(var(--input-border) / 0.7);
+    background-color: rgb(var(--input-bg) / 0.65);
+    backdrop-filter: blur(4px);
     color: rgb(var(--text-primary));
-    transition: all 0.2s ease;
+    transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
   }
 
   .input-field::placeholder {
@@ -357,7 +359,8 @@
   .input-field:focus {
     outline: none;
     border-color: rgb(var(--color-primary-500));
-    box-shadow: 0 0 0 3px rgba(var(--color-primary-500), 0.15);
+    box-shadow: 0 0 0 4px rgb(var(--color-primary-500) / 0.15);
+    transform: translateY(-1px);
   }
 
   .input-label {
@@ -708,9 +711,10 @@
   .bg-gradient-mesh {
     background-color: rgb(var(--bg-secondary));
     background-image: 
-      radial-gradient(at 40% 20%, rgba(var(--color-primary-500), 0.1) 0px, transparent 50%),
-      radial-gradient(at 80% 0%, rgba(16, 185, 129, 0.1) 0px, transparent 50%),
-      radial-gradient(at 0% 50%, rgba(139, 92, 246, 0.1) 0px, transparent 50%);
+      radial-gradient(at 20% 20%, rgba(59, 130, 246, 0.15) 0px, transparent 40%),
+      radial-gradient(at 80% 10%, rgba(16, 185, 129, 0.12) 0px, transparent 40%),
+      radial-gradient(at 40% 70%, rgba(139, 92, 246, 0.15) 0px, transparent 50%),
+      radial-gradient(at 90% 80%, rgba(244, 63, 94, 0.08) 0px, transparent 40%);
   }
 
   /* Animation Utilities */

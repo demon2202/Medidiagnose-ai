@@ -11,6 +11,7 @@ import {
   Shield
 } from 'lucide-react';
 import { useApp } from '../context/AppContext';
+import { config } from '../config/config';
 
 function HeartCheck() {
   const { addToHistory, isLoading, setIsLoading, showNotification } = useApp();
@@ -59,7 +60,7 @@ function HeartCheck() {
         numericData[key] = parseFloat(value);
       }
 
-      const response = await axios.post('http://localhost:5000/predict-heart', numericData);
+      const response = await axios.post(`${config.api.baseURL}/predict-heart`, numericData);
 
       if (response.data.success) {
         setResult(response.data);
@@ -83,7 +84,7 @@ function HeartCheck() {
         setError(`Analysis failed: ${msg}`);
       } else if (err.request) {
         // Request was made but no response received — server truly unreachable
-        setError('Failed to connect to the server. Please ensure the backend is running on http://localhost:5000.');
+        setError(`Failed to connect to the server. Please ensure the backend is running on ${config.api.baseURL}.`);
       } else {
         setError(`Request error: ${err.message}`);
       }

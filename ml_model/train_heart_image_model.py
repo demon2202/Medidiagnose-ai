@@ -10,9 +10,9 @@ WFDB_AVAILABLE = False
 try:
     import wfdb
     WFDB_AVAILABLE = True
-    print("✓ wfdb library available")
+    print("[OK] wfdb library available")
 except ImportError:
-    print("✗ wfdb not installed. Run: pip install wfdb")
+    print("[ERR] wfdb not installed. Run: pip install wfdb")
 
 # ── TensorFlow ──────────────────────────────────────────────────────────────
 TF_AVAILABLE = False
@@ -26,9 +26,9 @@ try:
     from tensorflow.keras.utils import to_categorical
     from tensorflow.keras.preprocessing.image import ImageDataGenerator
     TF_AVAILABLE = True
-    print(f"✓ TensorFlow {tf.__version__} available")
+    print(f"[OK] TensorFlow {tf.__version__} available")
 except ImportError:
-    print("✗ TensorFlow not available")
+    print("[ERR] TensorFlow not available")
 
 import pandas as pd
 from PIL import Image
@@ -188,8 +188,9 @@ def create_heart_model(input_shape=(224, 224, 1), num_classes=5):
     """
     Heart ECG model — MobileNetV2 transfer learning.
 
-    Input:  grayscale (224, 224, 1)
+    Input:  grayscale (224, 224, 1) in [0, 1] range
     Internally replicates to 3 channels for MobileNetV2.
+    clipnorm=1.0 on Adam prevents val_loss explosion.
     Output: softmax over 5 classes
 
     Returns: (model, base_model_reference)
@@ -198,6 +199,9 @@ def create_heart_model(input_shape=(224, 224, 1), num_classes=5):
 
     # Replicate grayscale → 3 channels for pretrained backbone
     x = layers.Concatenate()([gray_input, gray_input, gray_input])
+
+    # Scale to [-1, 1] for MobileNetV2 pretrained weights
+    x = layers.Lambda(lambda val: val * 2.0 - 1.0)(x)
 
     base_model = keras.applications.MobileNetV2(
         input_shape=(input_shape[0], input_shape[1], 3),
@@ -208,22 +212,7 @@ def create_heart_model(input_shape=(224, 224, 1), num_classes=5):
 
     x = base_model(x, training=False)
     x = layers.GlobalAveragePooling2D()(x)
-    x = layers.BatchNormalization()(x)
-
-    x = layers.Dense(512, kernel_regularizer=regularizers.l2(0.001))(x)
-    x = layers.BatchNormalization()(x)
-    x = layers.Activation('relu')(x)
-    x = layers.Dropout(0.5)(x)
-
-    x = layers.Dense(256, kernel_regularizer=regularizers.l2(0.001))(x)
-    x = layers.BatchNormalization()(x)
-    x = layers.Activation('relu')(x)
     x = layers.Dropout(0.4)(x)
-
-    x = layers.Dense(128, kernel_regularizer=regularizers.l2(0.001))(x)
-    x = layers.BatchNormalization()(x)
-    x = layers.Activation('relu')(x)
-    x = layers.Dropout(0.3)(x)
 
     outputs = layers.Dense(num_classes, activation='softmax')(x)
 
@@ -570,7 +559,7 @@ def train_heart_image_model():
     model, base_model = create_heart_model((IMG_SIZE, IMG_SIZE, 1), num_classes)
 
     model.compile(
-        optimizer=Adam(learning_rate=0.001),
+        optimizer=Adam(learning_rate=0.001, clipnorm=1.0),
         loss='categorical_crossentropy',
         metrics=['accuracy',
                  keras.metrics.Precision(name='precision'),
@@ -592,13 +581,13 @@ def train_heart_image_model():
     )
 
     # ── Phase 1: Frozen backbone ────────────────────────────────────────
-    epochs_p1 = 30 if using_real_data else 20
+    epochs_p1 = 20
     batch_size = 32
 
     callbacks_p1 = [
-        EarlyStopping(monitor='val_auc', mode='max', patience=10,
+        EarlyStopping(monitor='val_auc', mode='max', patience=6,
                       restore_best_weights=True, verbose=1),
-        ReduceLROnPlateau(monitor='val_loss', factor=0.5, patience=5,
+        ReduceLROnPlateau(monitor='val_loss', factor=0.5, patience=3,
                           min_lr=1e-7, verbose=1),
         ModelCheckpoint(HEART_IMAGE_MODEL_PATH, monitor='val_auc',
                         mode='max', save_best_only=True, verbose=1)
@@ -636,9 +625,9 @@ def train_heart_image_model():
     )
 
     callbacks_p2 = [
-        EarlyStopping(monitor='val_auc', mode='max', patience=8,
+        EarlyStopping(monitor='val_auc', mode='max', patience=5,
                       restore_best_weights=True, verbose=1),
-        ReduceLROnPlateau(monitor='val_loss', factor=0.5, patience=4,
+        ReduceLROnPlateau(monitor='val_loss', factor=0.5, patience=3,
                           min_lr=1e-8, verbose=1),
         ModelCheckpoint(HEART_IMAGE_MODEL_PATH, monitor='val_auc',
                         mode='max', save_best_only=True, verbose=1)
@@ -646,7 +635,7 @@ def train_heart_image_model():
 
     model.fit(
         datagen.flow(X_train, y_train, batch_size=batch_size),
-        epochs=15,
+        epochs=10,
         validation_data=(X_test, y_test),
         callbacks=callbacks_p2,
         class_weight=cw_dict,
@@ -709,13 +698,13 @@ def train_heart_image_model():
         true_name = CLASS_NAMES[y_true_classes[i]]
         pred_name = CLASS_NAMES[y_pred_classes[i]]
         conf = max_conf[i]
-        status = '✓' if true_name == pred_name else '✗'
+        status = 'OK' if true_name == pred_name else 'FAIL'
         print(f"    {status} True: {true_name:20s}  Pred: {pred_name:20s}  "
               f"Conf: {conf:.4f}")
 
     # ── Save ────────────────────────────────────────────────────────────
     model.save(HEART_IMAGE_MODEL_PATH)
-    print(f"\n✓ Model saved: {HEART_IMAGE_MODEL_PATH}")
+    print(f"\n[OK] Model saved: {HEART_IMAGE_MODEL_PATH}")
 
     config = {
         'model_path': HEART_IMAGE_MODEL_PATH,
@@ -737,14 +726,14 @@ def train_heart_image_model():
     }
     with open(HEART_CONFIG_PATH, 'w') as f:
         json.dump(config, f, indent=2)
-    print(f"✓ Config saved: {HEART_CONFIG_PATH}")
+    print(f"[OK] Config saved: {HEART_CONFIG_PATH}")
 
     print("\n" + "=" * 70)
-    print("  ⚠️  REMINDERS:")
+    print("  [WARN] REMINDERS:")
     print(f"  • Grayscale {IMG_SIZE}×{IMG_SIZE} input")
     print(f"  • 5 classes: {CLASS_NAMES}")
     if not using_real_data:
-        print("  • ⚠️  SYNTHETIC DATA — retrain with PTB-XL for production!")
+        print("  • [WARN] SYNTHETIC DATA — retrain with PTB-XL for production!")
     print("  • Restart server.py to load the new model!")
     print("=" * 70)
 
@@ -757,7 +746,7 @@ def train_heart_image_model():
 
 if __name__ == '__main__':
     if not TF_AVAILABLE:
-        print("❌ TensorFlow required. Install: pip install tensorflow")
+        print("[ERR] TensorFlow required. Install: pip install tensorflow")
     else:
         print("\n" + "=" * 70)
         print("  MediDiagnose-AI: Heart ECG Model Training")

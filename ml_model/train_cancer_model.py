@@ -20,7 +20,7 @@ import numpy as np
 import pandas as pd
 from sklearn.datasets import load_breast_cancer
 from sklearn.model_selection import (
-    train_test_split, cross_val_score, StratifiedKFold
+    train_test_split, cross_val_score, StratifiedKFold, RandomizedSearchCV
 )
 from sklearn.ensemble import (
     RandomForestClassifier,
@@ -244,34 +244,51 @@ def train_cancer_model():
     X_train_full_s = scaler.transform(X_train_full)
     print(f"  Scaler fitted on {scaler.n_features_in_} features ✓")
 
-    # ── Individual models ───────────────────────────────────────────────
+    # ── Tuning & training individual models ──────────────────────────────
     print("\n" + "-" * 50)
-    print("  Training individual models...")
+    print("  Tuning and training individual models...")
     print("-" * 50)
 
-    rf = RandomForestClassifier(
-        n_estimators=300, max_depth=20,
-        min_samples_split=4, min_samples_leaf=2,
-        max_features='sqrt', bootstrap=True, oob_score=True,
-        class_weight='balanced', random_state=42, n_jobs=-1
-    )
-    rf.fit(X_train_s, y_train)
-    print("  ✓ Random Forest")
+    # Random Forest Hyperparameter Search
+    rf_param_dist = {
+        'n_estimators': [100, 200, 300, 400],
+        'max_depth': [5, 10, 15, 20, None],
+        'min_samples_split': [2, 4, 6, 8],
+        'min_samples_leaf': [1, 2, 4],
+        'max_features': ['sqrt', 'log2', None]
+    }
+    rf_base = RandomForestClassifier(class_weight='balanced', random_state=42, n_jobs=-1)
+    rf_search = RandomizedSearchCV(rf_base, rf_param_dist, n_iter=15, cv=5, scoring='roc_auc', n_jobs=-1, random_state=42)
+    rf_search.fit(X_train_s, y_train)
+    rf = rf_search.best_estimator_
+    print(f"  ✓ Random Forest (Best params: {rf_search.best_params_})")
 
-    gb = GradientBoostingClassifier(
-        n_estimators=200, learning_rate=0.1,
-        max_depth=5, min_samples_split=4, min_samples_leaf=2,
-        subsample=0.8, random_state=42
-    )
-    gb.fit(X_train_s, y_train)
-    print("  ✓ Gradient Boosting")
+    # Gradient Boosting Hyperparameter Search
+    gb_param_dist = {
+        'n_estimators': [100, 150, 200, 250],
+        'learning_rate': [0.01, 0.05, 0.1, 0.15, 0.2],
+        'max_depth': [3, 4, 5, 6, 8],
+        'min_samples_split': [2, 4, 6, 8],
+        'min_samples_leaf': [1, 2, 4],
+        'subsample': [0.7, 0.8, 0.9, 1.0]
+    }
+    gb_base = GradientBoostingClassifier(random_state=42)
+    gb_search = RandomizedSearchCV(gb_base, gb_param_dist, n_iter=15, cv=5, scoring='roc_auc', n_jobs=-1, random_state=42)
+    gb_search.fit(X_train_s, y_train)
+    gb = gb_search.best_estimator_
+    print(f"  ✓ Gradient Boosting (Best params: {gb_search.best_params_})")
 
-    lr = LogisticRegression(
-        C=1.0, solver='liblinear', max_iter=1000,
-        class_weight='balanced', random_state=42
-    )
-    lr.fit(X_train_s, y_train)
-    print("  ✓ Logistic Regression")
+    # Logistic Regression Hyperparameter Search
+    lr_param_dist = {
+        'C': [0.01, 0.1, 1.0, 10.0, 100.0],
+        'penalty': ['l1', 'l2'],
+        'solver': ['liblinear']
+    }
+    lr_base = LogisticRegression(class_weight='balanced', random_state=42, max_iter=1000)
+    lr_search = RandomizedSearchCV(lr_base, lr_param_dist, n_iter=10, cv=5, scoring='roc_auc', n_jobs=-1, random_state=42)
+    lr_search.fit(X_train_s, y_train)
+    lr = lr_search.best_estimator_
+    print(f"  ✓ Logistic Regression (Best params: {lr_search.best_params_})")
 
     # ── Ensemble ────────────────────────────────────────────────────────
     print("\n  Creating ensemble...")

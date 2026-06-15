@@ -28,9 +28,9 @@ try:
     from tensorflow.keras.optimizers import Adam
     from tensorflow.keras.utils import to_categorical
     TF_AVAILABLE = True
-    print(f"✓ TensorFlow {tf.__version__} available")
+    print(f"[OK] TensorFlow {tf.__version__} available")
 except ImportError:
-    print("✗ TensorFlow not available")
+    print("[ERR] TensorFlow not available")
 
 from PIL import Image, ImageEnhance, ImageFilter
 from sklearn.model_selection import train_test_split, StratifiedKFold
@@ -283,21 +283,6 @@ def create_breast_model_improved(input_shape=(224, 224, 1), num_classes=3):
 
     # Global pooling
     x = layers.GlobalAveragePooling2D()(x)
-
-    # Classification head with proper regularization
-    x = layers.Dense(512, kernel_regularizer=regularizers.l2(0.001))(x)
-    x = layers.BatchNormalization()(x)
-    x = layers.Activation('relu')(x)
-    x = layers.Dropout(0.5)(x)
-
-    x = layers.Dense(256, kernel_regularizer=regularizers.l2(0.001))(x)
-    x = layers.BatchNormalization()(x)
-    x = layers.Activation('relu')(x)
-    x = layers.Dropout(0.4)(x)
-
-    x = layers.Dense(128, kernel_regularizer=regularizers.l2(0.001))(x)
-    x = layers.BatchNormalization()(x)
-    x = layers.Activation('relu')(x)
     x = layers.Dropout(0.3)(x)
 
     outputs = layers.Dense(num_classes, activation='softmax')(x)
@@ -310,15 +295,17 @@ def create_breast_model_improved(input_shape=(224, 224, 1), num_classes=3):
 def create_breast_model_transfer_grayscale(input_shape=(224, 224, 1), num_classes=3):
     """
     Transfer learning model that works with grayscale by replicating channels.
-
-    Key trick: Replicate grayscale to 3 channels to use ImageNet weights,
-    then fine-tune for our task.
+    Replicates grayscale to 3 channels to use ImageNet weights.
+    clipnorm=1.0 on Adam prevents val_loss explosion.
     """
     # Input layer for grayscale
     gray_input = layers.Input(shape=input_shape, name='grayscale_input')
 
     # Replicate to 3 channels for pretrained model
     x = layers.Concatenate()([gray_input, gray_input, gray_input])
+
+    # Scale to [-1, 1] for MobileNetV2 pretrained weights
+    x = layers.Lambda(lambda val: val * 2.0 - 1.0)(x)
 
     # Use MobileNetV2 as backbone
     base_model = keras.applications.MobileNetV2(
@@ -331,23 +318,7 @@ def create_breast_model_transfer_grayscale(input_shape=(224, 224, 1), num_classe
     # Get features
     x = base_model(x)
     x = layers.GlobalAveragePooling2D()(x)
-
-    # Classification head
-    x = layers.BatchNormalization()(x)
-    x = layers.Dense(512, kernel_regularizer=regularizers.l2(0.001))(x)
-    x = layers.BatchNormalization()(x)
-    x = layers.Activation('relu')(x)
-    x = layers.Dropout(0.5)(x)
-
-    x = layers.Dense(256, kernel_regularizer=regularizers.l2(0.001))(x)
-    x = layers.BatchNormalization()(x)
-    x = layers.Activation('relu')(x)
     x = layers.Dropout(0.4)(x)
-
-    x = layers.Dense(128, kernel_regularizer=regularizers.l2(0.001))(x)
-    x = layers.BatchNormalization()(x)
-    x = layers.Activation('relu')(x)
-    x = layers.Dropout(0.3)(x)
 
     outputs = layers.Dense(num_classes, activation='softmax')(x)
 
@@ -624,10 +595,11 @@ def train_breast_cancer_model(use_transfer=True, use_6_classes=False):
         print(f"\n🔧 Creating improved ResNet-style model...")
         model = create_breast_model_improved(input_shape, num_classes)
 
-    # Compile with focal loss for better handling of class imbalance
+    # Compile with standard categorical_crossentropy + class weights
+    # (avoids focal_loss serialization issues when loading in server.py)
     model.compile(
-        optimizer=Adam(learning_rate=0.001 if use_transfer else 0.0005),
-        loss=focal_loss(gamma=2.0, alpha=0.25),
+        optimizer=Adam(learning_rate=0.001 if use_transfer else 0.0005, clipnorm=1.0),
+        loss='categorical_crossentropy',
         metrics=['accuracy',
                  keras.metrics.Precision(name='precision'),
                  keras.metrics.Recall(name='recall'),
@@ -640,28 +612,28 @@ def train_breast_cancer_model(use_transfer=True, use_6_classes=False):
 
     # Data augmentation - optimized for ultrasound
     datagen = ImageDataGenerator(
-        rotation_range=20,
-        width_shift_range=0.15,
-        height_shift_range=0.15,
+        rotation_range=30,
+        width_shift_range=0.2,
+        height_shift_range=0.2,
         horizontal_flip=True,
         vertical_flip=True,
-        zoom_range=0.15,
-        shear_range=0.1,
-        brightness_range=[0.8, 1.2],
+        zoom_range=0.2,
+        shear_range=0.15,
+        brightness_range=[0.75, 1.25],
         fill_mode='constant',
         cval=0
     )
 
     # Callbacks
-    total_epochs_phase1 = 40
+    total_epochs_phase1 = 20
     callbacks_phase1 = [
         EarlyStopping(
             monitor='val_auc', mode='max',
-            patience=12, restore_best_weights=True, verbose=1
+            patience=7, restore_best_weights=True, verbose=1
         ),
         ReduceLROnPlateau(
-            monitor='val_loss', factor=0.5,
-            patience=6, min_lr=1e-7, verbose=1
+            monitor='val_loss', factor=0.5, patience=3,
+            min_lr=1e-7, verbose=1
         ),
         ModelCheckpoint(
             BREAST_MODEL_PATH, monitor='val_auc',
@@ -693,7 +665,7 @@ def train_breast_cancer_model(use_transfer=True, use_6_classes=False):
 
         # Unfreeze top layers
         base_model_ref.trainable = True
-        for layer in base_model_ref.layers[:-40]:
+        for layer in base_model_ref.layers[:-60]:
             layer.trainable = False
 
         trainable_count = sum(1 for layer in base_model_ref.layers if layer.trainable)
@@ -702,21 +674,22 @@ def train_breast_cancer_model(use_transfer=True, use_6_classes=False):
         # Recompile with very low learning rate
         model.compile(
             optimizer=Adam(learning_rate=0.00005),
-            loss=focal_loss(gamma=2.0, alpha=0.25),
+            loss='categorical_crossentropy',
             metrics=['accuracy',
                      keras.metrics.Precision(name='precision'),
                      keras.metrics.Recall(name='recall'),
                      keras.metrics.AUC(name='auc')]
         )
 
+        total_epochs_phase2 = 10
         callbacks_phase2 = [
             EarlyStopping(
                 monitor='val_auc', mode='max',
-                patience=8, restore_best_weights=True, verbose=1
+                patience=5, restore_best_weights=True, verbose=1
             ),
             ReduceLROnPlateau(
-                monitor='val_loss', factor=0.5,
-                patience=4, min_lr=1e-8, verbose=1
+                monitor='val_loss', factor=0.5, patience=2,
+                min_lr=1e-8, verbose=1
             ),
             ModelCheckpoint(
                 BREAST_MODEL_PATH, monitor='val_auc',
@@ -726,7 +699,7 @@ def train_breast_cancer_model(use_transfer=True, use_6_classes=False):
 
         history2 = model.fit(
             datagen.flow(X_train, y_train, batch_size=batch_size),
-            epochs=20,
+            epochs=total_epochs_phase2,
             validation_data=(X_test, y_test),
             callbacks=callbacks_phase2,
             class_weight=class_weight_dict,
@@ -789,7 +762,7 @@ def train_breast_cancer_model(use_transfer=True, use_6_classes=False):
 
     # Save model
     model.save(BREAST_MODEL_PATH)
-    print(f"\n✓ Model saved: {BREAST_MODEL_PATH}")
+    print(f"\n[OK] Model saved: {BREAST_MODEL_PATH}")
 
     # Save config
     classes_config = ({str(k): v for k, v in BREAST_CLASSES_3.items()} if num_classes == 3
@@ -814,10 +787,10 @@ def train_breast_cancer_model(use_transfer=True, use_6_classes=False):
 
     with open(BREAST_CONFIG_PATH, 'w') as f:
         json.dump(config, f, indent=2)
-    print(f"✓ Config saved: {BREAST_CONFIG_PATH}")
+    print(f"[OK] Config saved: {BREAST_CONFIG_PATH}")
 
     print("\n" + "=" * 70)
-    print("⚠️  REMINDERS:")
+    print("[WARN] REMINDERS:")
     print(f"  - Model uses GRAYSCALE preprocessing")
     print(f"  - Input: {IMG_SIZE}x{IMG_SIZE}")
     print(f"  - Classes: {num_classes}")
@@ -846,7 +819,16 @@ def main():
     print("  3. Train 6-class with transfer learning")
     print("  4. Exit")
 
-    choice = input("\nEnter choice (1-4): ").strip()
+    import sys
+    choice = '1'
+    if len(sys.argv) > 1:
+        choice = sys.argv[1].strip()
+        print(f"Using CLI choice: {choice}")
+    elif not sys.stdin.isatty():
+        print("Non-interactive stdin detected. Training option 1 by default.")
+        choice = '1'
+    else:
+        choice = input("\nEnter choice (1-4): ").strip()
 
     if choice == '1':
         train_breast_cancer_model(use_transfer=True, use_6_classes=False)

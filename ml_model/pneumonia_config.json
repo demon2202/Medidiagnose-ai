@@ -14,14 +14,14 @@
   ],
   "output_type": "softmax_2class",
   "architecture": "MobileNetV2_transfer_learning",
-  "accuracy": 0.3990384638309479,
-  "precision": 0.3990384638309479,
-  "recall": 0.3990384638309479,
-  "auc": 0.38833415508270264,
+  "accuracy": 0.375,
+  "precision": 0.375,
+  "recall": 0.375,
+  "auc": 0.378336101770401,
   "confusion_matrix": {
-    "TN": 28,
-    "FP": 206,
-    "FN": 169,
-    "TP": 221
+    "TN": 234,
+    "FP": 0,
+    "FN": 390,
+    "TP": 0
   }
 }

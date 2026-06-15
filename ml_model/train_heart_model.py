@@ -16,7 +16,7 @@ import json
 import numpy as np
 import pandas as pd
 from sklearn.model_selection import (
-    train_test_split, cross_val_score, StratifiedKFold
+    train_test_split, cross_val_score, StratifiedKFold, RandomizedSearchCV
 )
 from sklearn.ensemble import (
     RandomForestClassifier,
@@ -25,6 +25,7 @@ from sklearn.ensemble import (
 )
 from sklearn.linear_model import LogisticRegression
 from sklearn.preprocessing import StandardScaler
+from sklearn.calibration import CalibratedClassifierCV
 from sklearn.metrics import (
     accuracy_score, classification_report,
     roc_auc_score, confusion_matrix,
@@ -284,43 +285,66 @@ def train_heart_model():
 
     print(f"  Scaler fitted on {X_train_s.shape[1]} features ✓")
 
-    # ── Individual models ───────────────────────────────────────────────
+    # ── Tuning & training individual models ──────────────────────────────
     print("\n" + "-" * 50)
-    print("  Training individual models...")
+    print("  Tuning and training individual models...")
     print("-" * 50)
 
-    rf = RandomForestClassifier(
-        n_estimators=300, max_depth=20,
-        min_samples_split=4, min_samples_leaf=2,
-        max_features='sqrt', bootstrap=True,
-        class_weight='balanced', random_state=42, n_jobs=-1
-    )
-    rf.fit(X_train_s, y_train)
-    print("  ✓ Random Forest")
+    # Random Forest Hyperparameter Search
+    rf_param_dist = {
+        'n_estimators': [100, 200, 300, 400],
+        'max_depth': [5, 10, 15, 20, None],
+        'min_samples_split': [2, 4, 6, 8],
+        'min_samples_leaf': [1, 2, 4],
+        'max_features': ['sqrt', 'log2', None]
+    }
+    rf_base = RandomForestClassifier(class_weight='balanced', random_state=42, n_jobs=-1)
+    rf_search = RandomizedSearchCV(rf_base, rf_param_dist, n_iter=15, cv=5, scoring='roc_auc', n_jobs=-1, random_state=42)
+    rf_search.fit(X_train_s, y_train)
+    rf = rf_search.best_estimator_
+    print(f"  ✓ Random Forest (Best params: {rf_search.best_params_})")
 
-    gb = GradientBoostingClassifier(
-        n_estimators=200, learning_rate=0.1,
-        max_depth=5, min_samples_split=4, min_samples_leaf=2,
-        subsample=0.8, random_state=42
-    )
-    gb.fit(X_train_s, y_train)
-    print("  ✓ Gradient Boosting")
+    # Gradient Boosting Hyperparameter Search
+    gb_param_dist = {
+        'n_estimators': [100, 150, 200, 250],
+        'learning_rate': [0.01, 0.05, 0.1, 0.15, 0.2],
+        'max_depth': [3, 4, 5, 6, 8],
+        'min_samples_split': [2, 4, 6, 8],
+        'min_samples_leaf': [1, 2, 4],
+        'subsample': [0.7, 0.8, 0.9, 1.0]
+    }
+    gb_base = GradientBoostingClassifier(random_state=42)
+    gb_search = RandomizedSearchCV(gb_base, gb_param_dist, n_iter=15, cv=5, scoring='roc_auc', n_jobs=-1, random_state=42)
+    gb_search.fit(X_train_s, y_train)
+    gb = gb_search.best_estimator_
+    print(f"  ✓ Gradient Boosting (Best params: {gb_search.best_params_})")
 
-    lr = LogisticRegression(
-        C=1.0, solver='liblinear', max_iter=1000,
-        class_weight='balanced', random_state=42
-    )
-    lr.fit(X_train_s, y_train)
-    print("  ✓ Logistic Regression")
+    # Logistic Regression Hyperparameter Search
+    lr_param_dist = {
+        'C': [0.01, 0.1, 1.0, 10.0, 100.0],
+        'penalty': ['l1', 'l2'],
+        'solver': ['liblinear']
+    }
+    lr_base = LogisticRegression(class_weight='balanced', random_state=42, max_iter=1000)
+    lr_search = RandomizedSearchCV(lr_base, lr_param_dist, n_iter=10, cv=5, scoring='roc_auc', n_jobs=-1, random_state=42)
+    lr_search.fit(X_train_s, y_train)
+    lr = lr_search.best_estimator_
+    print(f"  ✓ Logistic Regression (Best params: {lr_search.best_params_})")
 
-    # ── Ensemble ────────────────────────────────────────────────────────
-    print("\n  Creating ensemble...")
-    ensemble = VotingClassifier(
+    # ── Ensemble & Calibration ──────────────────────────────────────────
+    print("\n  Creating ensemble & calibrating probabilities...")
+    ensemble_base = VotingClassifier(
         estimators=[('rf', rf), ('gb', gb), ('lr', lr)],
         voting='soft', weights=[2, 2, 1]
     )
+    ensemble_base.fit(X_train_s, y_train)
+    
+    # Sigmoid calibration with 5-fold CV to prevent extreme probabilities
+    ensemble = CalibratedClassifierCV(
+        estimator=ensemble_base, method='sigmoid', cv=5
+    )
     ensemble.fit(X_train_s, y_train)
-    print("  ✓ Ensemble (soft voting, weights=[2,2,1])")
+    print("  ✓ Calibrated Ensemble (sigmoid, 5-fold CV)")
 
     # ── Evaluate all models ─────────────────────────────────────────────
     print("\n" + "=" * 70)
@@ -331,7 +355,8 @@ def train_heart_model():
         'Random Forest': rf,
         'Gradient Boosting': gb,
         'Logistic Regression': lr,
-        'Ensemble': ensemble
+        'Ensemble': ensemble_base,
+        'Calibrated Ensemble': ensemble
     }
 
     best_model = None
@@ -370,7 +395,8 @@ def train_heart_model():
 
     # ── Cross-validation ────────────────────────────────────────────────
     skf = StratifiedKFold(n_splits=5, shuffle=True, random_state=42)
-    cv = cross_val_score(best_model, X_train_s, y_train,
+    cv_model = ensemble_base if 'Calibrated' in best_name else best_model
+    cv = cross_val_score(cv_model, X_train_s, y_train,
                          cv=skf, scoring='roc_auc', n_jobs=-1)
     print(f"\n  5-Fold CV (ROC-AUC):")
     print(f"    Mean: {cv.mean():.4f}  Std: {cv.std():.4f}")
@@ -393,7 +419,7 @@ def train_heart_model():
     # ── Feature importance ──────────────────────────────────────────────
     if hasattr(best_model, 'feature_importances_'):
         importances = best_model.feature_importances_
-    elif best_name == 'Ensemble':
+    elif best_name in ['Ensemble', 'Calibrated Ensemble']:
         # Average importance from tree-based sub-models
         importances = (rf.feature_importances_ * 2 +
                        gb.feature_importances_ * 2) / 4

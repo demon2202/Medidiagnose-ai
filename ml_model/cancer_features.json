@@ -58,8 +58,8 @@
     "0": "Benign",
     "1": "Malignant"
   },
-  "model_type": "Calibrated Ensemble",
-  "calibrated": true,
+  "model_type": "Logistic Regression",
+  "calibrated": false,
   "note": "StandardScaler, 10 raw features, calibrated probabilities",
-  "training_date": "2026-03-26T22:27:40.452202"
+  "training_date": "2026-06-14T21:33:19.896603"
 }

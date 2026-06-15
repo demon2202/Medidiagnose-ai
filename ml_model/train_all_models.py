@@ -9,14 +9,20 @@ import subprocess
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 
-def run_script(script_name):
+def run_script(script_name, args=None):
     """Run a training script"""
     script_path = os.path.join(SCRIPT_DIR, script_name)
     if os.path.exists(script_path):
         print(f"\n{'='*60}")
-        print(f"Running: {script_name}")
+        print(f"Running: {script_name} {' '.join(args) if args else ''}")
         print('='*60)
-        subprocess.run([sys.executable, script_path])
+        env = os.environ.copy()
+        env['PYTHONUTF8'] = '1'
+        env['PYTHONIOENCODING'] = 'utf-8'
+        cmd = [sys.executable, script_path]
+        if args:
+            cmd.extend(args)
+        subprocess.run(cmd, env=env)
     else:
         print(f"Warning: {script_path} not found")
 
@@ -28,9 +34,9 @@ def main():
     
     run_script('image_validator.py')
     run_script('disease_prediction_v2.py')
-    run_script('image_classification.py')
+    run_script('image_classification.py', ['3'])
     
-    run_script('train_breast_cancer_model.py')
+    run_script('train_breast_cancer_model.py', ['1'])
     run_script('train_cancer_model.py')
     
     
@@ -49,7 +55,7 @@ def main():
     print("\nGenerated model files:")
     for f in os.listdir(SCRIPT_DIR):
         if f.endswith(('.joblib', '.h5', '.json')):
-            print(f"  ✓ {f}")
+            print(f"  [OK] {f}")
 
 if __name__ == '__main__':
     main()

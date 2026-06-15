@@ -12,42 +12,42 @@
     "roc_auc": 1.0,
     "f1_score": 1.0,
     "mcc": 1.0,
-    "prob_min": 1.6434558987725593e-09,
-    "prob_max": 0.9999999988447315
+    "prob_min": 3.9174860609647123e-10,
+    "prob_max": 0.9999999998895499
   },
   "Logistic Regression": {
     "accuracy": 1.0,
     "roc_auc": 1.0,
     "f1_score": 1.0,
     "mcc": 1.0,
-    "prob_min": 7.604246725732964e-05,
-    "prob_max": 0.9999997819864652
+    "prob_min": 0.059786685129032374,
+    "prob_max": 0.9764751780419697
   },
   "Ensemble": {
     "accuracy": 1.0,
     "roc_auc": 1.0,
     "f1_score": 1.0,
     "mcc": 1.0,
-    "prob_min": 5.426257453757409e-05,
-    "prob_max": 0.9999999558498265
+    "prob_min": 0.011957337547753629,
+    "prob_max": 0.9952950355477507
   },
   "Calibrated Ensemble": {
     "accuracy": 1.0,
     "roc_auc": 1.0,
     "f1_score": 1.0,
     "mcc": 1.0,
-    "prob_min": 0.014760194789955938,
-    "prob_max": 0.9854459458910984
+    "prob_min": 0.012865760273307396,
+    "prob_max": 0.988389883117673
   },
   "Calibrated Ensemble CV": {
     "accuracy": 1.0,
     "roc_auc": 1.0,
     "f1_score": 1.0,
     "mcc": 1.0,
-    "prob_min": 0.020119879970441967,
-    "prob_max": 0.9805761350550399
+    "prob_min": 0.018262990345943832,
+    "prob_max": 0.9834491849847236
   },
-  "best_model": "Calibrated Ensemble",
-  "cv_mean_auc": 0.999826388888889,
-  "calibrated": true
+  "best_model": "Logistic Regression",
+  "cv_mean_auc": 1.0,
+  "calibrated": false
 }
