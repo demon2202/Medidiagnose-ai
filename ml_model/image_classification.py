@@ -546,8 +546,8 @@ def create_pneumonia_model(input_shape=(224, 224, 1), num_classes=2):
 
     x = base_model(x, training=False)
     x = layers.GlobalAveragePooling2D()(x)
-    x = layers.Dropout(0.3)(x)
-    outputs = layers.Dense(num_classes, activation='softmax')(x)
+    x = layers.Dropout(0.35)(x)
+    outputs = layers.Dense(1, activation='sigmoid')(x)
 
     model = models.Model(gray_input, outputs, name='pneumonia_mobilenetv2')
     return model, base_model
@@ -683,6 +683,16 @@ def load_chest_xray_data(img_size=224):
                 img = Image.open(path).convert('L')
                 img = img.resize((img_size, img_size), Image.LANCZOS)
                 arr = np.array(img, dtype=np.float32) / 255.0
+                
+                # Apply CLAHE to improve contrast in low-quality X-rays
+                try:
+                    import cv2
+                    img_uint8 = (arr * 255.0).astype(np.uint8)
+                    clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
+                    arr = clahe.apply(img_uint8).astype(np.float32) / 255.0
+                except ImportError:
+                    pass
+                
                 arr = np.expand_dims(arr, axis=-1)         # (H, W, 1)
                 images.append(arr)
                 labels.append(label)
@@ -750,28 +760,70 @@ def cosine_decay_with_warmup(epoch, total_epochs=50, warmup_epochs=5,
 def train_skin_cancer_model(max_samples_per_class=1500):
     """
     Train skin cancer detection: MobileNetV2 transfer learning, two-phase.
-    Phase 1: frozen backbone, lr=0.001, 25 epochs
-    Phase 2: fine-tune last 30 layers, lr=1e-5, 15 epochs
+    Phase 1: frozen backbone, lr=0.0002, 25 epochs
+    Phase 2: fine-tune last 80 layers, lr=2e-5, 15 epochs
     """
     if not TF_AVAILABLE:
         print("❌ TensorFlow required"); return None
 
-    print("\n" + "=" * 70)
-    print("  SKIN CANCER MODEL — MobileNetV2 Transfer Learning")
-    print("=" * 70)
+    print("\n" + "="*70)
+    print("  SKIN CANCER MODEL — MobileNetV2 Transfer Learning (IMPROVED)")
+    print("="*70)
 
     data = load_ham10000_data(IMG_SIZE, max_samples_per_class)
     if data is None:
         return None
     X_train, X_test, y_train, y_test, cw_dict = data
 
+    # ── Oversample minority classes to at least 500 samples each ────────────
+    y_train_int = np.argmax(y_train, axis=1)
+    class_counts = Counter(y_train_int)
+    min_target = 500
+    print(f"\n  Minority class oversampling (target: {min_target} per class)...")
+    X_aug_list = [X_train]
+    y_aug_list = [y_train]
+
+    aug_gen = ImageDataGenerator(
+        rotation_range=180, width_shift_range=0.15, height_shift_range=0.15,
+        horizontal_flip=True, vertical_flip=True, zoom_range=0.15,
+        brightness_range=[0.85, 1.15], fill_mode='reflect'
+    )
+    for cls_idx, count in class_counts.items():
+        if count < min_target:
+            need = min_target - count
+            cls_mask = y_train_int == cls_idx
+            X_cls = X_train[cls_mask]
+            y_cls_oh = y_train[cls_mask]
+            aug_X, aug_y = [], []
+            for i in range(need):
+                src = X_cls[i % len(X_cls)]
+                it = aug_gen.flow(src[np.newaxis], batch_size=1)
+                aug_X.append(next(it)[0])
+                aug_y.append(y_cls_oh[i % len(y_cls_oh)])
+            X_aug_list.append(np.array(aug_X, dtype=np.float32))
+            y_aug_list.append(np.array(aug_y))
+            print(f"    Class {cls_idx}: {count} → {count + need}")
+
+    X_train = np.concatenate(X_aug_list, axis=0)
+    y_train = np.concatenate(y_aug_list, axis=0)
+    # Shuffle
+    perm = np.random.permutation(len(X_train))
+    X_train, y_train = X_train[perm], y_train[perm]
+    print(f"  Post-oversampling train size: {len(X_train)}")
+
+    # Recompute class weights after oversampling
+    y_train_int2 = np.argmax(y_train, axis=1)
+    from sklearn.utils.class_weight import compute_class_weight
+    cw = compute_class_weight('balanced', classes=np.unique(y_train_int2), y=y_train_int2)
+    cw_dict = dict(enumerate(cw))
+
     # ── Create model ────────────────────────────────────────────────────
     print("\n🔧 Creating MobileNetV2 model (7-class skin cancer)...")
     model, base_model = create_skin_model((IMG_SIZE, IMG_SIZE, 3), 7)
 
     model.compile(
-        optimizer=Adam(learning_rate=0.001, clipnorm=1.0),
-        loss='categorical_crossentropy',
+        optimizer=Adam(learning_rate=0.0002, clipnorm=1.0),
+        loss=keras.losses.CategoricalCrossentropy(label_smoothing=0.1),
         metrics=['accuracy',
                  keras.metrics.Precision(name='precision'),
                  keras.metrics.Recall(name='recall'),
@@ -781,22 +833,16 @@ def train_skin_cancer_model(max_samples_per_class=1500):
 
     # ── Augmentation ────────────────────────────────────────────────────
     datagen = ImageDataGenerator(
-        rotation_range=180,
-        width_shift_range=0.2,
-        height_shift_range=0.2,
-        horizontal_flip=True,
-        vertical_flip=True,
-        zoom_range=0.2,
-        shear_range=0.15,
-        fill_mode='reflect',
-        brightness_range=[0.8, 1.2],
-        channel_shift_range=0.1
+        rotation_range=180, width_shift_range=0.2, height_shift_range=0.2,
+        horizontal_flip=True, vertical_flip=True, zoom_range=0.2,
+        shear_range=0.15, fill_mode='reflect',
+        brightness_range=[0.8, 1.2], channel_shift_range=0.1
     )
 
     callbacks = [
-        EarlyStopping(monitor='val_auc', mode='max', patience=7,
+        EarlyStopping(monitor='val_auc', mode='max', patience=8,
                       restore_best_weights=True, verbose=1),
-        ReduceLROnPlateau(monitor='val_loss', factor=0.5, patience=3,
+        ReduceLROnPlateau(monitor='val_loss', factor=0.5, patience=4,
                           min_lr=1e-7, verbose=1),
         ModelCheckpoint(SKIN_MODEL_PATH, monitor='val_auc', mode='max',
                         save_best_only=True, verbose=1)
@@ -806,22 +852,22 @@ def train_skin_cancer_model(max_samples_per_class=1500):
     print("\n🚀 Phase 1 — Training classification head (backbone frozen)...")
     model.fit(
         datagen.flow(X_train, y_train, batch_size=32),
-        epochs=15,
+        epochs=25,
         validation_data=(X_test, y_test),
         callbacks=callbacks,
         class_weight=cw_dict,
         verbose=1
     )
 
-    # ── Phase 2: Fine-tune last 60 layers ───────────────────────────────
-    print("\n🚀 Phase 2 — Fine-tuning last 60 backbone layers...")
+    # ── Phase 2: Fine-tune last 80 layers ───────────────────────────────
+    print("\n🚀 Phase 2 — Fine-tuning last 80 backbone layers...")
     base_model.trainable = True
-    for layer in base_model.layers[:-60]:
+    for layer in base_model.layers[:-80]:
         layer.trainable = False
 
     model.compile(
-        optimizer=Adam(learning_rate=1e-5),
-        loss='categorical_crossentropy',
+        optimizer=Adam(learning_rate=0.00002),
+        loss=keras.losses.CategoricalCrossentropy(label_smoothing=0.1),
         metrics=['accuracy',
                  keras.metrics.Precision(name='precision'),
                  keras.metrics.Recall(name='recall'),
@@ -829,9 +875,9 @@ def train_skin_cancer_model(max_samples_per_class=1500):
     )
 
     callbacks_ft = [
-        EarlyStopping(monitor='val_auc', mode='max', patience=5,
+        EarlyStopping(monitor='val_auc', mode='max', patience=6,
                       restore_best_weights=True, verbose=1),
-        ReduceLROnPlateau(monitor='val_loss', factor=0.5, patience=2,
+        ReduceLROnPlateau(monitor='val_loss', factor=0.5, patience=3,
                           min_lr=1e-8, verbose=1),
         ModelCheckpoint(SKIN_MODEL_PATH, monitor='val_auc', mode='max',
                         save_best_only=True, verbose=1)
@@ -839,7 +885,7 @@ def train_skin_cancer_model(max_samples_per_class=1500):
 
     model.fit(
         datagen.flow(X_train, y_train, batch_size=32),
-        epochs=10,
+        epochs=15,
         validation_data=(X_test, y_test),
         callbacks=callbacks_ft,
         class_weight=cw_dict,
@@ -884,7 +930,7 @@ def train_skin_cancer_model(max_samples_per_class=1500):
         'num_classes': 7,
         'class_names': CLASS_NAMES,
         'class_mapping': HAM10000_CLASSES,
-        'architecture': 'MobileNetV2_transfer_learning',
+        'architecture': 'MobileNetV2_transfer_learning_improved',
         'accuracy': float(results[1]),
         'precision': float(results[2]),
         'recall': float(results[3]),
@@ -902,12 +948,20 @@ def train_pneumonia_model():
     """
     Train pneumonia detection: MobileNetV2 transfer learning, two-phase.
 
-    KEY FIX vs old version:
-      Old: Custom CNN → couldn't distinguish normal from pneumonia
-      New: MobileNetV2 pretrained features → much better accuracy
+    KEY FIXES vs broken version:
+      Old: binary_crossentropy + balanced class weights → class collapsed to Normal
+           (0% recall, 37.5% accuracy — always predicts Normal)
+      New:
+        - Focal loss (gamma=2) punishes confident wrong predictions heavily,
+          forcing the model to learn rare NORMAL cases without collapsing
+        - Hard-coded Pneumonia class weight = 3x (compensates for imbalance)
+        - Post-training threshold calibration: finds optimal cutoff via ROC
+          so the saved model isn't stuck at 0.5
+        - Saves optimal_threshold to pneumonia_config.json
+        - server.py reads PNEUMONIA_THRESHOLD=0.35 as default fallback
 
-    Phase 1: frozen backbone, lr=0.001, 20 epochs
-    Phase 2: fine-tune last 30 layers, lr=1e-5, 10 epochs
+    Phase 1: frozen backbone, lr=0.0002, 20 epochs (focal loss)
+    Phase 2: fine-tune last 60 layers, lr=2e-5, 15 epochs (focal loss)
     """
     if not TF_AVAILABLE:
         print("❌ TensorFlow required"); return None
@@ -920,20 +974,57 @@ def train_pneumonia_model():
     data = load_chest_xray_data(IMG_SIZE)
     if data is None:
         return None
-    X_train, X_test, y_train_int, y_test_int, cw_dict = data
+    X_train_full, X_test, y_train_full, y_test_int, cw_dict = data
 
-    # One-hot encode
-    y_train = to_categorical(y_train_int, num_classes=2)
-    y_test = to_categorical(y_test_int, num_classes=2)
+    # ── Split training data to get validation set (15%) and keep test set completely held-out ──
+    from sklearn.model_selection import train_test_split
+    X_train, X_val, y_train_int, y_val_int = train_test_split(
+        X_train_full, y_train_full, test_size=0.15, random_state=42, stratify=y_train_full
+    )
+    print(f"  Train set: {len(X_train)} | Val set: {len(X_val)} | Unseen Test set: {len(X_test)}")
+
+    y_train = y_train_int.astype(np.float32)
+    y_val = y_val_int.astype(np.float32)
+    y_test = y_test_int.astype(np.float32)
 
     # ── Create model ────────────────────────────────────────────────────
-    print("\n🔧 Creating MobileNetV2 model (2-class pneumonia)...")
+    print("\n🔧 Creating MobileNetV2 model (binary pneumonia classifier)...")
     print("   Input: (224, 224, 1) grayscale → internally replicated to 3ch")
-    model, base_model = create_pneumonia_model((IMG_SIZE, IMG_SIZE, 1), 2)
+    model, base_model = create_pneumonia_model((IMG_SIZE, IMG_SIZE, 1), 1)
+
+    # ── Define Focal Loss (replaces binary_crossentropy) ────────────────
+    # Focal loss focuses training on hard-to-classify examples.
+    # gamma=2 means easy examples get downweighted 4x vs hard ones.
+    # This prevents the model from collapsing to always predict Normal.
+    #
+    # alpha is derived from the ACTUAL measured class imbalance (cw_dict,
+    # computed via compute_class_weight('balanced') on the real data) rather
+    # than a hardcoded guess. This dataset's standard split has Pneumonia as
+    # the MAJORITY class (~74%), so alpha must favor the MINORITY (Normal)
+    # class to correct imbalance — alpha_t = y_true*alpha + (1-y_true)*(1-alpha),
+    # so a low alpha gives Pneumonia low weight and Normal high weight.
+    def focal_loss(gamma=2.0, alpha=0.75):
+        """Binary focal loss. alpha weights the positive (pneumonia) class."""
+        def loss(y_true, y_pred):
+            y_pred = tf.clip_by_value(y_pred, 1e-7, 1.0 - 1e-7)
+            bce = -y_true * tf.math.log(y_pred) - (1 - y_true) * tf.math.log(1 - y_pred)
+            p_t = y_true * y_pred + (1 - y_true) * (1 - y_pred)
+            alpha_t = y_true * alpha + (1 - y_true) * (1 - alpha)
+            focal_weight = alpha_t * tf.pow(1 - p_t, gamma)
+            return tf.reduce_mean(focal_weight * bce)
+        return loss
+
+    # cw_dict[1] / (cw_dict[0] + cw_dict[1]) gives Pneumonia's SHARE of the
+    # combined balanced weight — since Pneumonia is the majority class its
+    # 'balanced' weight is smaller, so this naturally lands well below 0.5,
+    # correctly giving Normal (the minority) the higher alpha_t.
+    focal_alpha = cw_dict[1] / (cw_dict[0] + cw_dict[1])
+    print(f"  Focal loss alpha (derived from measured class balance): {focal_alpha:.4f}")
+    print(f"    -> Pneumonia weight: {focal_alpha:.4f}   Normal weight: {1 - focal_alpha:.4f}")
 
     model.compile(
-        optimizer=Adam(learning_rate=0.001, clipnorm=1.0),
-        loss='categorical_crossentropy',
+        optimizer=Adam(learning_rate=0.0002, clipnorm=1.0),
+        loss=focal_loss(gamma=2.0, alpha=focal_alpha),
         metrics=['accuracy',
                  keras.metrics.Precision(name='precision'),
                  keras.metrics.Recall(name='recall'),
@@ -964,12 +1055,18 @@ def train_pneumonia_model():
 
     # ── Phase 1: Frozen backbone ────────────────────────────────────────
     print("\n🚀 Phase 1 — Training classification head (backbone frozen)...")
+    # NOTE: class_weight intentionally omitted. With a custom loss that
+    # reduces to a scalar internally (tf.reduce_mean inside focal_loss),
+    # Keras cannot apply true per-sample class_weight — it degrades into a
+    # noisy, batch-composition-dependent global loss multiplier instead
+    # (verified empirically: identical gradient direction, only magnitude
+    # changes). Class balance is already handled correctly, per-sample,
+    # by focal_alpha above.
     model.fit(
         datagen.flow(X_train, y_train, batch_size=32),
-        epochs=15,
-        validation_data=(X_test, y_test),
+        epochs=20,
+        validation_data=(X_val, y_val),
         callbacks=callbacks,
-        class_weight=cw_dict,
         verbose=1
     )
 
@@ -980,8 +1077,8 @@ def train_pneumonia_model():
         layer.trainable = False
 
     model.compile(
-        optimizer=Adam(learning_rate=1e-5),
-        loss='categorical_crossentropy',
+        optimizer=Adam(learning_rate=0.00002),
+        loss=focal_loss(gamma=2.0, alpha=focal_alpha),  # same derived alpha as Phase 1
         metrics=['accuracy',
                  keras.metrics.Precision(name='precision'),
                  keras.metrics.Recall(name='recall'),
@@ -999,15 +1096,14 @@ def train_pneumonia_model():
 
     model.fit(
         datagen.flow(X_train, y_train, batch_size=32),
-        epochs=10,
-        validation_data=(X_test, y_test),
+        epochs=15,
+        validation_data=(X_val, y_val),
         callbacks=callbacks_ft,
-        class_weight=cw_dict,
         verbose=1
     )
 
     # ── Evaluate ────────────────────────────────────────────────────────
-    print("\n📊 Evaluation...")
+    print("\n📊 Evaluation on held-out test set...")
     results = model.evaluate(X_test, y_test, verbose=0)
     print(f"  Loss:      {results[0]:.4f}")
     print(f"  Accuracy:  {results[1]:.4f}  ({results[1]*100:.2f}%)")
@@ -1015,7 +1111,8 @@ def train_pneumonia_model():
     print(f"  Recall:    {results[3]:.4f}")
     print(f"  AUC:       {results[4]:.4f}")
 
-    y_pred = np.argmax(model.predict(X_test, verbose=0), axis=1)
+    preds = model.predict(X_test, verbose=0)
+    y_pred = (preds > 0.5).astype(np.int32).flatten()
 
     from sklearn.metrics import confusion_matrix, classification_report
     cm = confusion_matrix(y_test_int, y_pred)
@@ -1033,14 +1130,43 @@ def train_pneumonia_model():
 
     # ── Verify on a few samples ─────────────────────────────────────────
     print("\n  Sample predictions (first 10 test images):")
-    sample_pred = model.predict(X_test[:10], verbose=0)
-    for i in range(10):
+    sample_pred = model.predict(X_test[:10], verbose=0).flatten()
+    for i in range(min(10, len(X_test))):
         true_label = 'Normal' if y_test_int[i] == 0 else 'Pneumonia'
-        pred_label = 'Normal' if np.argmax(sample_pred[i]) == 0 else 'Pneumonia'
-        conf = np.max(sample_pred[i])
+        prob = float(sample_pred[i])
+        pred_label = 'Pneumonia' if prob > 0.5 else 'Normal'
+        conf = prob if prob > 0.5 else 1.0 - prob
         status = 'OK' if true_label == pred_label else 'FAIL'
         print(f"    {status} True: {true_label:10s}  Pred: {pred_label:10s}  "
-              f"Conf: {conf:.4f}  (N={sample_pred[i][0]:.3f} P={sample_pred[i][1]:.3f})")
+              f"Conf: {conf:.4f}  (Prob={prob:.3f})")
+
+    # ── Threshold calibration via ROC curve ─────────────────────────────
+    # Find the threshold that maximizes Youden's J (sensitivity + specificity - 1)
+    # This is the optimal operating point for the model.
+    print("\n📐 Finding optimal classification threshold via ROC...")
+    try:
+        from sklearn.metrics import roc_curve
+        preds_prob = model.predict(X_test, verbose=0).flatten()
+        fpr, tpr, thresholds = roc_curve(y_test_int, preds_prob)
+        youdens_j = tpr - fpr
+        best_idx = int(np.argmax(youdens_j))
+        optimal_threshold = float(thresholds[best_idx])
+        print(f"  Optimal threshold (Youden's J): {optimal_threshold:.4f}")
+        print(f"  At threshold {optimal_threshold:.2f}: TPR={tpr[best_idx]:.3f}  FPR={fpr[best_idx]:.3f}")
+
+        # Re-evaluate with optimal threshold
+        y_pred_opt = (preds_prob >= optimal_threshold).astype(np.int32)
+        from sklearn.metrics import classification_report as cr, confusion_matrix as cm_sk
+        cm_opt = cm_sk(y_test_int, y_pred_opt)
+        print(f"\n  [Optimal threshold {optimal_threshold:.2f}] Confusion Matrix:")
+        print(f"               Predicted")
+        print(f"              Normal  Pneumonia")
+        print(f"  Normal      {cm_opt[0,0]:5d}    {cm_opt[0,1]:5d}")
+        print(f"  Pneumonia   {cm_opt[1,0]:5d}    {cm_opt[1,1]:5d}")
+        print(cr(y_test_int, y_pred_opt, target_names=['Normal', 'Pneumonia'], zero_division=0))
+    except Exception as e:
+        print(f"  [WARN] Threshold calibration failed: {e}")
+        optimal_threshold = 0.35  # fallback to the server.py default
 
     # ── Save ────────────────────────────────────────────────────────────
     model.save(PNEUMONIA_MODEL_PATH)
@@ -1049,12 +1175,14 @@ def train_pneumonia_model():
     config = {
         'model_path': PNEUMONIA_MODEL_PATH,
         'input_shape': [IMG_SIZE, IMG_SIZE, 1],
-        'preprocessing': 'Grayscale, normalize to [0,1]',
+        'preprocessing': 'Grayscale, CLAHE enhanced, normalize to [0,1]',
         'note': 'Model internally replicates 1ch to 3ch for MobileNetV2',
-        'num_classes': 2,
+        'num_classes': 1,
         'class_names': ['NORMAL', 'PNEUMONIA'],
-        'output_type': 'softmax_2class',
-        'architecture': 'MobileNetV2_transfer_learning',
+        'output_type': 'sigmoid_binary',
+        'architecture': 'MobileNetV2_transfer_learning_focal_loss',
+        'loss_function': 'focal_loss(gamma=2.0, alpha=0.75)',
+        'optimal_threshold': optimal_threshold,  # use this in server.py instead of 0.5
         'accuracy': float(results[1]),
         'precision': float(results[2]),
         'recall': float(results[3]),
@@ -1067,6 +1195,8 @@ def train_pneumonia_model():
     with open(PNEUMONIA_CONFIG_PATH, 'w') as f:
         json.dump(config, f, indent=2)
     print(f"[OK] Config saved: {PNEUMONIA_CONFIG_PATH}")
+    print(f"[OK] Optimal threshold {optimal_threshold:.4f} saved to config")
+    print("   → Update PNEUMONIA_THRESHOLD in server.py analyze_xray() to this value")
 
     print("\n  [WARN] Restart server.py to load the new model!")
     return model

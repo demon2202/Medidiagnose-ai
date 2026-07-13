@@ -12,6 +12,7 @@ import {
 } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import { config } from '../config/config';
+import Disclaimer from '../components/common/Disclaimer';
 
 function HeartCheck() {
   const { addToHistory, isLoading, setIsLoading, showNotification } = useApp();
@@ -182,20 +183,9 @@ function HeartCheck() {
         </p>
       </div>
 
-    
-      <div className="alert-warning">
-        <AlertCircle size={20} className="flex-shrink-0 mt-0.5" />
-        <div>
-          <p className="font-medium">Medical Disclaimer</p>
-          <p className="text-sm mt-1">
-            This tool provides educational insights only and should not replace professional 
-            medical advice. Always consult a cardiologist for proper heart health evaluation.
-          </p>
-        </div>
-      </div>
+      <Disclaimer message="This heart health risk assessment is for informational and educational insights only. It should not be used as a diagnosis or replace consultation with a cardiologist or professional medical advisor." />
 
       <div className="grid lg:grid-cols-3 gap-6">
-    
         <div className="lg:col-span-2">
           <div className="card">
             <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-6 flex items-center gap-2">

@@ -13,6 +13,7 @@ import {
 import { useApp } from '../context/AppContext';
 import { symptoms, symptomCategories } from '../data/symptoms';
 import { config } from '../config/config';
+import Disclaimer from '../components/common/Disclaimer';
 
 function SymptomDiagnosis() {
   const { addToHistory, isLoading, setIsLoading } = useApp();
@@ -76,11 +77,20 @@ function SymptomDiagnosis() {
           diagnosisData.prediction?.confidence_percent ||
           `${(confidence * 100).toFixed(1)}%`;
 
+        // confidence_tier: computed server-side using both the raw confidence
+        // AND the margin over the runner-up prediction — a 42-class model with
+        // overlapping symptoms (fever/fatigue/etc show up in a dozen+ diseases)
+        // can legitimately peak around 30-50% while still being decisive.
+        // Falls back to a local equivalent if an older backend response lacks it.
+        const runnerUp = diagnosisData.alternative_diagnoses?.[0]?.confidence ?? 0;
+        const confidenceTier = diagnosisData.confidence_tier || getConfidenceTier(confidence, runnerUp);
+
         setResult({
           ...diagnosisData,
           prediction: predictionStr,
           confidence,
           confidence_percent: confidencePct,
+          confidence_tier: confidenceTier,
         });
         
         addToHistory({
@@ -123,17 +133,27 @@ function SymptomDiagnosis() {
     setError(null);
   };
 
-  const getConfidenceColor = (confidence) => {
-    if (confidence >= 0.8) return 'bg-green-500';
-    if (confidence >= 0.6) return 'bg-yellow-500';
-    if (confidence >= 0.4) return 'bg-orange-500';
-    return 'bg-red-500';
+  // Mirrors server.py's get_confidence_tier(): for a 42-class problem with
+  // heavy symptom overlap, a flat >80% bar for "High" is unrealistic without
+  // overfitting. Margin over the runner-up prediction matters as much as the
+  // raw number — 39.6% vs a distant 20.7% runner-up is more decisive than
+  // 39.6% vs 38%.
+  const getConfidenceTier = (confidence, runnerUp = 0) => {
+    const margin = confidence - runnerUp;
+    if (confidence > 0.55 || (confidence > 0.35 && margin > 0.20)) return 'High';
+    if (confidence > 0.25 || margin > 0.10) return 'Moderate';
+    return 'Low';
   };
 
-  const getConfidenceText = (confidence) => {
-    if (confidence >= 0.8) return 'High Confidence';
-    if (confidence >= 0.6) return 'Moderate Confidence';
-    if (confidence >= 0.4) return 'Low-Moderate Confidence';
+  const getConfidenceColor = (tier) => {
+    if (tier === 'High') return 'bg-green-500';
+    if (tier === 'Moderate') return 'bg-yellow-500';
+    return 'bg-orange-500';
+  };
+
+  const getConfidenceText = (tier) => {
+    if (tier === 'High') return 'High Confidence';
+    if (tier === 'Moderate') return 'Moderate Confidence';
     return 'Low Confidence';
   };
 
@@ -141,24 +161,12 @@ function SymptomDiagnosis() {
     <div className="space-y-6 animate-fade-in">
       <div>
         <h1 className="page-title">Symptom Diagnosis</h1>
-        <p className="text-gray-600 -mt-4 mb-6">
+        <p className="page-subtitle -mt-3">
           Select your symptoms below to receive an AI-powered health assessment.
         </p>
       </div>
 
-      <div className="card bg-amber-50 border-amber-200">
-        <div className="flex items-start gap-3">
-          <AlertCircle className="text-amber-600 flex-shrink-0 mt-0.5" size={20} />
-          <div>
-            <p className="font-medium text-amber-800">Medical Disclaimer</p>
-            <p className="text-sm text-amber-700 mt-1">
-              This AI tool provides informational insights only and is not a substitute for professional 
-              medical advice, diagnosis, or treatment. Always seek the advice of a qualified healthcare 
-              provider with any questions about your health.
-            </p>
-          </div>
-        </div>
-      </div>
+      <Disclaimer />
 
       <div className="grid lg:grid-cols-3 gap-6">
         <div className="lg:col-span-2 space-y-4">
@@ -177,7 +185,7 @@ function SymptomDiagnosis() {
               <select
                 value={selectedCategory}
                 onChange={(e) => setSelectedCategory(e.target.value)}
-                className="input-field md:w-48"
+                className="select-field md:w-48"
               >
                 {symptomCategories.map(category => (
                   <option key={category} value={category}>{category}</option>
@@ -198,22 +206,22 @@ function SymptomDiagnosis() {
                   <div className={`w-5 h-5 rounded border-2 flex items-center justify-center transition-colors ${
                     selectedSymptoms.includes(symptom.id)
                       ? 'bg-primary-600 border-primary-600'
-                      : 'border-gray-300'
+                      : 'border-zinc-300 dark:border-zinc-700'
                   }`}>
                     {selectedSymptoms.includes(symptom.id) && (
-                      <CheckCircle className="text-white" size={14} />
+                      <CheckCircle className="text-white animate-scale-in" size={14} />
                     )}
                   </div>
                   <div className="text-left">
-                    <p className="font-medium text-gray-900">{symptom.label}</p>
-                    <p className="text-xs text-gray-500">{symptom.category}</p>
+                    <p className="font-medium text-zinc-900 dark:text-zinc-150">{symptom.label}</p>
+                    <p className="text-xs text-zinc-500 dark:text-zinc-400">{symptom.category}</p>
                   </div>
                 </button>
               ))}
             </div>
 
             {filteredSymptoms.length === 0 && (
-              <div className="text-center py-8 text-gray-500">
+              <div className="text-center py-8 text-zinc-500">
                 No symptoms found matching your search.
               </div>
             )}
@@ -222,13 +230,13 @@ function SymptomDiagnosis() {
 
         <div className="space-y-4">
           <div className="card">
-            <h3 className="font-semibold text-gray-900 mb-3 flex items-center gap-2">
+            <h3 className="font-semibold text-zinc-900 dark:text-zinc-100 mb-3 flex items-center gap-2">
               <Stethoscope size={20} className="text-primary-600" />
               Selected Symptoms ({selectedSymptoms.length})
             </h3>
             
             {selectedSymptoms.length === 0 ? (
-              <p className="text-gray-500 text-sm">No symptoms selected yet</p>
+              <p className="text-zinc-500 text-sm">No symptoms selected yet</p>
             ) : (
               <div className="space-y-2 mb-4 max-h-60 overflow-y-auto">
                 {selectedSymptoms.map(id => {
@@ -236,12 +244,12 @@ function SymptomDiagnosis() {
                   return (
                     <div 
                       key={id}
-                      className="flex items-center justify-between bg-primary-50 px-3 py-2 rounded-lg"
+                      className="flex items-center justify-between bg-zinc-100 dark:bg-zinc-800/60 px-3 py-2 rounded-lg"
                     >
-                      <span className="text-sm text-primary-700">{symptom?.label}</span>
+                      <span className="text-sm text-zinc-800 dark:text-zinc-200">{symptom?.label}</span>
                       <button
                         onClick={() => toggleSymptom(id)}
-                        className="text-primary-600 hover:text-primary-800 font-bold text-lg leading-none"
+                        className="text-zinc-500 hover:text-red-500 font-bold text-lg leading-none transition-colors px-1"
                       >
                         ×
                       </button>
@@ -262,7 +270,7 @@ function SymptomDiagnosis() {
               <button
                 onClick={handleDiagnose}
                 disabled={isLoading || selectedSymptoms.length < 2}
-                className="flex-1 btn-primary disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                className="flex-1 btn-primary"
               >
                 {isLoading ? (
                   <>
@@ -284,122 +292,115 @@ function SymptomDiagnosis() {
           </div>
 
           {error && (
-            <div className="card bg-red-50 border-red-200 animate-slide-up">
+            <div className="card bg-red-50 dark:bg-red-950/20 border-red-200 dark:border-red-800/60 animate-slide-up">
               <div className="flex items-start gap-2">
-                <AlertCircle className="text-red-600 flex-shrink-0 mt-0.5" size={18} />
-                <p className="text-sm text-red-700">{error}</p>
-              </div>
-            </div>
-          )}
-
-          {result && (
-            <div className="card border-green-200 animate-slide-up">
-              <div className="flex items-center gap-2 mb-4">
-                <CheckCircle className="text-green-600" size={24} />
-                <h3 className="font-semibold text-gray-900">Diagnosis Result</h3>
-              </div>
-
-              <div className="space-y-4">
-                <div>
-                  <p className="text-sm text-gray-500 mb-1">Predicted Condition</p>
-                  <p className="text-xl font-bold text-gray-900">
-                    {result.prediction}
-                  </p>
-                </div>
-
-                <div>
-                  <p className="text-sm text-gray-500 mb-2">Confidence Level</p>
-                  <div className="space-y-2">
-                    <div className="flex items-center gap-2">
-                      <div className="flex-1 bg-gray-200 rounded-full h-3">
-                        <div 
-                          className={`h-3 rounded-full transition-all duration-500 ${getConfidenceColor(result.confidence)}`}
-                          style={{ width: `${Math.max(5, result.confidence * 100)}%` }}
-                        />
-                      </div>
-                      <span className="text-sm font-medium min-w-[60px] text-right">
-                        {(result.confidence * 100).toFixed(1)}%
-                      </span>
-                    </div>
-                    <p className="text-xs text-gray-600">
-                      {getConfidenceText(result.confidence)}
-                    </p>
-                  </div>
-                </div>
-
-                {result.description && (
-                  <div>
-                    <p className="text-sm text-gray-500 mb-1">Description</p>
-                    <p className="text-sm text-gray-700 leading-relaxed">{result.description}</p>
-                  </div>
-                )}
-
-                {result.alternative_diagnoses && result.alternative_diagnoses.length > 0 && (
-                  <div>
-                    <p className="text-sm text-gray-500 mb-2 flex items-center gap-1">
-                      <Info size={14} />
-                      Alternative Possibilities
-                    </p>
-                    <div className="space-y-1">
-                      {result.alternative_diagnoses.map((alt, index) => (
-                        <div key={index} className="flex items-center justify-between bg-gray-50 px-3 py-2 rounded text-sm">
-                          <span className="text-gray-700">{alt.disease}</span>
-                          <span className="text-gray-500 font-medium">{(alt.confidence * 100).toFixed(1)}%</span>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
-
-                {result.recommendations && result.recommendations.length > 0 && (
-                  <div>
-                    <p className="text-sm text-gray-500 mb-2 flex items-center gap-1">
-                      <Shield size={14} />
-                      Recommendations
-                    </p>
-                    <ul className="space-y-1.5">
-                      {result.recommendations.map((recommendation, index) => (
-                        <li key={index} className="flex items-start gap-2 text-sm text-gray-700">
-                          <span className="text-primary-600 mt-0.5">•</span>
-                          <span className="flex-1">{recommendation}</span>
-                        </li>
-                      ))}
-                    </ul>
-                  </div>
-                )}
-
-                {result.precautions && result.precautions.length > 0 && (
-                  <div>
-                    <p className="text-sm text-gray-500 mb-2 flex items-center gap-1">
-                      <Shield size={14} />
-                      Precautions
-                    </p>
-                    <ul className="space-y-1.5">
-                      {result.precautions.map((precaution, index) => (
-                        <li key={index} className="flex items-start gap-2 text-sm text-gray-700">
-                          <span className="text-primary-600 mt-0.5">•</span>
-                          <span className="flex-1">{precaution}</span>
-                        </li>
-                      ))}
-                    </ul>
-                  </div>
-                )}
-
-                <div className="bg-blue-50 p-3 rounded-lg border border-blue-200">
-                  <div className="flex items-start gap-2">
-                    <Info className="text-blue-600 flex-shrink-0 mt-0.5" size={16} />
-                    <p className="text-xs text-blue-700">
-                      This is an AI-generated assessment based on the symptoms you provided. 
-                      Please consult a healthcare professional for proper diagnosis and treatment. 
-                      Do not use this as a substitute for professional medical advice.
-                    </p>
-                  </div>
-                </div>
+                <AlertCircle className="text-red-600 dark:text-red-400 flex-shrink-0 mt-0.5" size={18} />
+                <p className="text-sm text-red-700 dark:text-red-300">{error}</p>
               </div>
             </div>
           )}
         </div>
       </div>
+
+      {result && (
+        <div className="card border-green-200 dark:border-green-800/40 p-8 shadow-xl animate-slide-up mt-6 bg-white dark:bg-zinc-900/50 backdrop-blur-md">
+          <div className="flex items-center gap-3 mb-6">
+            <CheckCircle className="text-green-600 dark:text-green-400" size={28} />
+            <h3 className="text-xl font-bold text-zinc-900 dark:text-zinc-100">Diagnosis Result</h3>
+          </div>
+
+          <div className="grid md:grid-cols-2 gap-8">
+            <div className="space-y-6">
+              <div>
+                <p className="text-xs font-semibold text-zinc-400 uppercase tracking-wider mb-1">Predicted Condition</p>
+                <p className="text-2xl font-extrabold text-zinc-900 dark:text-zinc-100">
+                  {result.prediction}
+                </p>
+              </div>
+
+              <div>
+                <p className="text-xs font-semibold text-zinc-400 uppercase tracking-wider mb-2">Confidence Level</p>
+                <div className="space-y-2">
+                  <div className="flex items-center gap-3">
+                    <div className="flex-1 bg-zinc-100 dark:bg-zinc-800 rounded-full h-3.5 overflow-hidden border border-zinc-200/50 dark:border-zinc-700/50">
+                      <div 
+                        className={`h-full rounded-full transition-all duration-500 ${getConfidenceColor(result.confidence_tier)}`}
+                        style={{ width: `${Math.max(5, result.confidence * 100)}%` }}
+                      />
+                    </div>
+                    <span className="text-lg font-bold text-zinc-900 dark:text-zinc-100 min-w-[60px] text-right">
+                      {(result.confidence * 100).toFixed(1)}%
+                    </span>
+                  </div>
+                  <p className="text-sm text-zinc-500 dark:text-zinc-400 font-medium">
+                    {getConfidenceText(result.confidence_tier)}
+                  </p>
+                </div>
+              </div>
+
+              {result.description && (
+                <div>
+                  <p className="text-xs font-semibold text-zinc-400 uppercase tracking-wider mb-1.5">Condition Description</p>
+                  <p className="text-sm text-zinc-600 dark:text-zinc-400 leading-relaxed">{result.description}</p>
+                </div>
+              )}
+
+              {result.alternative_diagnoses && result.alternative_diagnoses.length > 0 && (
+                <div>
+                  <p className="text-xs font-semibold text-zinc-400 uppercase tracking-wider mb-2.5 flex items-center gap-1.5">
+                    <Info size={14} />
+                    Alternative Possibilities
+                  </p>
+                  <div className="space-y-2 max-w-md">
+                    {result.alternative_diagnoses.map((alt, index) => (
+                      <div key={index} className="flex items-center justify-between bg-zinc-50 dark:bg-zinc-800/40 border border-zinc-100 dark:border-zinc-800 px-4 py-2.5 rounded-lg text-sm">
+                        <span className="text-zinc-700 dark:text-zinc-300 font-medium">{alt.disease}</span>
+                        <span className="text-zinc-900 dark:text-zinc-100 font-bold">{(alt.confidence * 100).toFixed(1)}%</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+
+            <div className="space-y-6">
+              {result.recommendations && result.recommendations.length > 0 && (
+                <div>
+                  <p className="text-xs font-semibold text-zinc-400 uppercase tracking-wider mb-2 flex items-center gap-1.5">
+                    <Shield size={14} className="text-zinc-500" />
+                    Recommendations
+                  </p>
+                  <ul className="space-y-2 bg-zinc-50 dark:bg-zinc-800/20 border border-zinc-100 dark:border-zinc-800/60 p-4 rounded-xl">
+                    {result.recommendations.map((recommendation, index) => (
+                      <li key={index} className="flex items-start gap-2 text-sm text-zinc-600 dark:text-zinc-400">
+                        <span className="text-zinc-500 mt-1 flex-shrink-0">•</span>
+                        <span className="flex-1 leading-relaxed">{recommendation}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+
+              {result.precautions && result.precautions.length > 0 && (
+                <div>
+                  <p className="text-xs font-semibold text-zinc-400 uppercase tracking-wider mb-2 flex items-center gap-1.5">
+                    <Shield size={14} className="text-zinc-500" />
+                    Precautions
+                  </p>
+                  <ul className="space-y-2 bg-zinc-50 dark:bg-zinc-800/20 border border-zinc-100 dark:border-zinc-800/60 p-4 rounded-xl">
+                    {result.precautions.map((precaution, index) => (
+                      <li key={index} className="flex items-start gap-2 text-sm text-zinc-600 dark:text-zinc-400">
+                        <span className="text-zinc-500 mt-1 flex-shrink-0">•</span>
+                        <span className="flex-1 leading-relaxed">{precaution}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

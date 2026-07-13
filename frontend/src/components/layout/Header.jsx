@@ -22,7 +22,7 @@ function Header() {
 
   return (
     <>
-      <header className="bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 px-4 py-3 flex items-center justify-between sticky top-0 z-30">
+      <header className="bg-white/80 dark:bg-zinc-950/60 border-b border-zinc-200 dark:border-zinc-900 px-4 py-3 flex items-center justify-between sticky top-0 z-30 backdrop-blur-md">
         <div className="flex items-center gap-4">
           <button
             onClick={() => setSidebarOpen(true)}

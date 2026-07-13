@@ -129,7 +129,7 @@
       ]
     }
   },
-  "model_type": "Random Forest",
+  "model_type": "Logistic Regression",
   "note": "NO feature engineering \u2014 13 raw features only",
-  "training_date": "2026-06-14T22:15:29.707050"
+  "training_date": "2026-07-13T22:28:46.109095"
 }

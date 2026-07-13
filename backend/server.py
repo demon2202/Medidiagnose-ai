@@ -1,14 +1,12 @@
 """
-server.py - COMPLETE FIXED VERSION
+server.py
 ====================================
 MediDiagnose-AI Backend Server
 
-Fixes:
 - Consistent response structure across all endpoints
-- Proper confidence values (always float 0-1)
+- Proper confidence values (always float 0-1, raw model output — no floors or clamps)
 - All predictions include confidence_percent
-- Better demo mode with image-based heuristics
-- Proper error handling
+- Proper error handling: returns 503 if a model is not loaded
 """
 
 import warnings
@@ -61,10 +59,12 @@ except ImportError:
 TF_AVAILABLE = False
 try:
     os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
+    os.environ['TF_ENABLE_ONEDNN_OPTS'] = '1'
     import tensorflow as tf
+    tf.config.run_functions_eagerly(False)
     from tensorflow import keras
     TF_AVAILABLE = True
-    logger.info(f"✅ TensorFlow {tf.__version__} loaded successfully")
+    logger.info(f"✅ TensorFlow {tf.__version__} loaded successfully with oneDNN optimizations")
 except ImportError as e:
     logger.warning(f"⚠️ TensorFlow not available: {e}")
 
@@ -76,20 +76,14 @@ try:
 except ImportError:
     logger.warning("⚠️ PIL not available")
 
-# ── Minimum confidence floor so the UI always shows a meaningful value ──────
-# The model's raw softmax probability is often well-calibrated but can look
-# "too low" on borderline cases.  We apply a floor only when the model is
-# running in demo/no-model mode; for a loaded model we still clamp to a
-# minimum so the UI never shows a suspiciously tiny number.
-CONFIDENCE_FLOOR = 0.80          # 80 % floor for demo mode
-REAL_MODEL_FLOOR = 0.75          # 75 % floor when a real model IS loaded
+
 
 app = Flask(__name__)
 
 CORS(app, resources={
     r"/*": {
         "origins": ["http://localhost:5173", "http://localhost:3000",
-                     "http://127.0.0.1:5173", "http://127.0.0.1:3000", "*"],
+                     "http://127.0.0.1:5173", "http://127.0.0.1:3000"],
         "methods": ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
         "allow_headers": ["Content-Type", "Authorization", "X-Requested-With"],
         "supports_credentials": True,
@@ -97,15 +91,6 @@ CORS(app, resources={
     }
 })
 
-
-@app.after_request
-def after_request(response):
-    origin = request.headers.get('Origin', '*')
-    response.headers.add('Access-Control-Allow-Origin', origin)
-    response.headers.add('Access-Control-Allow-Headers', 'Content-Type,Authorization,X-Requested-With')
-    response.headers.add('Access-Control-Allow-Methods', 'GET,POST,PUT,DELETE,OPTIONS')
-    response.headers.add('Access-Control-Allow-Credentials', 'true')
-    return response
 
 
 class Config:
@@ -230,38 +215,627 @@ DISEASE_INFO = {
     'Paroxysmal Positional Vertigo': {'description': 'Spinning sensation triggered by head position changes.', 'precautions': ['Move slowly when changing positions', 'Avoid sudden movements', 'Balance exercises', 'Consult ENT specialist']}
 }
 
-DEMO_SYMPTOMS = [
-    'itching', 'skin_rash', 'nodal_skin_eruptions', 'continuous_sneezing', 'shivering',
-    'chills', 'joint_pain', 'stomach_pain', 'acidity', 'ulcers_on_tongue',
-    'muscle_wasting', 'vomiting', 'burning_micturition', 'spotting_urination', 'fatigue',
-    'weight_gain', 'anxiety', 'cold_hands_and_feets', 'mood_swings', 'weight_loss',
-    'restlessness', 'lethargy', 'patches_in_throat', 'irregular_sugar_level', 'cough',
-    'high_fever', 'sunken_eyes', 'breathlessness', 'sweating', 'dehydration',
-    'indigestion', 'headache', 'yellowish_skin', 'dark_urine', 'nausea',
-    'loss_of_appetite', 'pain_behind_the_eyes', 'back_pain', 'constipation', 'abdominal_pain',
-    'diarrhoea', 'mild_fever', 'yellow_urine', 'yellowing_of_eyes', 'acute_liver_failure',
-    'fluid_overload', 'swelling_of_stomach', 'swelled_lymph_nodes', 'malaise',
-    'blurred_and_distorted_vision', 'phlegm', 'throat_irritation', 'redness_of_eyes',
-    'sinus_pressure', 'runny_nose', 'congestion', 'chest_pain', 'weakness_in_limbs',
-    'fast_heart_rate', 'pain_during_bowel_movements', 'pain_in_anal_region', 'bloody_stool',
-    'irritation_in_anus', 'neck_pain', 'dizziness', 'cramps', 'bruising', 'obesity',
-    'swollen_legs', 'swollen_blood_vessels', 'puffy_face_and_eyes', 'enlarged_thyroid',
-    'brittle_nails', 'swollen_extremeties', 'excessive_hunger', 'extra_marital_contacts',
-    'drying_and_tingling_lips', 'slurred_speech', 'knee_pain', 'hip_joint_pain',
-    'muscle_weakness', 'stiff_neck', 'swelling_joints', 'movement_stiffness',
-    'spinning_movements', 'loss_of_balance', 'unsteadiness', 'weakness_of_one_body_side',
-    'loss_of_smell', 'bladder_discomfort', 'foul_smell_of_urine', 'continuous_feel_of_urine',
-    'passage_of_gases', 'internal_itching', 'toxic_look_(typhos)', 'depression', 'irritability',
-    'muscle_pain', 'altered_sensorium', 'red_spots_over_body', 'belly_pain',
-    'abnormal_menstruation', 'dischromic_patches', 'watering_from_eyes', 'increased_appetite',
-    'polyuria', 'family_history', 'mucoid_sputum', 'rusty_sputum', 'lack_of_concentration',
-    'visual_disturbances', 'receiving_blood_transfusion', 'receiving_unsterile_injections',
-    'coma', 'stomach_bleeding', 'distention_of_abdomen', 'history_of_alcohol_consumption',
-    'blood_in_sputum', 'prominent_veins_on_calf', 'palpitations', 'painful_walking',
-    'pus_filled_pimples', 'blackheads', 'scurring', 'skin_peeling', 'silver_like_dusting',
-    'small_dents_in_nails', 'inflammatory_nails', 'blister', 'red_sore_around_nose',
-    'yellow_crust_ooze'
-]
+
+
+# ============================================================
+#         SYMPTOM SYNONYM MAP (fixes "fever" not matching, etc.)
+# ============================================================
+# Maps common user-typed terms → canonical symptom names in symptom_list.json
+# Keys are already lowercase_underscored (after basic normalization).
+# Values must exactly match entries in symptom_list.json.
+
+SYMPTOM_SYNONYMS = {
+    # ── Fever / Temperature ─────────────────────────────────────────────────
+    'fever': 'high_fever',
+    'temperature': 'high_fever',
+    'high_temperature': 'high_fever',
+    'feverish': 'high_fever',
+    'febrile': 'high_fever',
+    'pyrexia': 'high_fever',
+    'running_a_fever': 'high_fever',
+    'running_fever': 'high_fever',
+    'have_fever': 'high_fever',
+    'low_grade_fever': 'mild_fever',
+    'low_fever': 'mild_fever',
+    'slight_fever': 'mild_fever',
+    'subfebril': 'mild_fever',
+    'subfebrile': 'mild_fever',
+
+    # ── Breathing / Respiratory ─────────────────────────────────────────────
+    'shortness_of_breath': 'breathlessness',
+    'short_of_breath': 'breathlessness',
+    'difficulty_breathing': 'breathlessness',
+    'trouble_breathing': 'breathlessness',
+    'cant_breathe': 'breathlessness',
+    'cannot_breathe': 'breathlessness',
+    'dyspnea': 'breathlessness',
+    'breathless': 'breathlessness',
+    'wheezing': 'breathlessness',
+    'labored_breathing': 'breathlessness',
+    'shallow_breathing': 'breathlessness',
+    'gasping': 'breathlessness',
+    'air_hunger': 'breathlessness',
+    'tachypnea': 'breathlessness',
+
+    # ── Cough / Sputum ──────────────────────────────────────────────────────
+    'coughing': 'cough',
+    'dry_cough': 'cough',
+    'persistent_cough': 'cough',
+    'chronic_cough': 'cough',
+    'wet_cough': 'phlegm',
+    'productive_cough': 'phlegm',
+    'cough_with_phlegm': 'phlegm',
+    'coughing_up_phlegm': 'phlegm',
+    'sputum': 'phlegm',
+    'mucus': 'mucoid_sputum',
+    'mucus_in_throat': 'mucoid_sputum',
+    'blood_in_sputum': 'blood_in_sputum',
+    'coughing_blood': 'blood_in_sputum',
+    'hemoptysis': 'blood_in_sputum',
+
+    # ── Pain (Abdominal / Stomach) ──────────────────────────────────────────
+    'stomach_ache': 'stomach_pain',
+    'tummy_ache': 'stomach_pain',
+    'stomach_cramps': 'stomach_pain',
+    'stomach_hurts': 'stomach_pain',
+    'stomach_hurt': 'stomach_pain',
+    'tummy_pain': 'stomach_pain',
+    'epigastric_pain': 'stomach_pain',
+    'gastric_pain': 'stomach_pain',
+    'belly_ache': 'belly_pain',
+    'belly_pain': 'belly_pain',
+    'lower_abdominal_pain': 'abdominal_pain',
+    'upper_abdominal_pain': 'abdominal_pain',
+    'ab_pain': 'abdominal_pain',
+    'abdomen_pain': 'abdominal_pain',
+    'abdominal_cramps': 'abdominal_pain',
+    'pelvic_pain': 'abdominal_pain',
+
+    # ── Chest Pain ─────────────────────────────────────────────────────────
+    'chest_tightness': 'chest_pain',
+    'chest_pressure': 'chest_pain',
+    'chest_discomfort': 'chest_pain',
+    'chest_heaviness': 'chest_pain',
+    'chest_squeezing': 'chest_pain',
+    'heart_pain': 'chest_pain',
+    'angina': 'chest_pain',
+    'chest_burn': 'chest_pain',
+
+    # ── Back / Neck / Joint Pain ────────────────────────────────────────────
+    'back_ache': 'back_pain',
+    'backache': 'back_pain',
+    'lower_back_pain': 'back_pain',
+    'upper_back_pain': 'back_pain',
+    'spine_pain': 'back_pain',
+    'lumbar_pain': 'back_pain',
+    'neck_ache': 'neck_pain',
+    'stiff_neck': 'stiff_neck',
+    'neck_stiffness': 'stiff_neck',
+    'joint_ache': 'joint_pain',
+    'joint_stiffness': 'joint_pain',
+    'joint_swelling': 'swelling_joints',
+    'swollen_joints': 'swelling_joints',
+    'arthritis_pain': 'joint_pain',
+    'knee_ache': 'knee_pain',
+    'knee_hurt': 'knee_pain',
+    'hip_pain': 'hip_joint_pain',
+    'muscle_ache': 'muscle_pain',
+    'body_ache': 'muscle_pain',
+    'body_pain': 'muscle_pain',
+    'myalgia': 'muscle_pain',
+    'limb_pain': 'muscle_pain',
+    'leg_pain': 'muscle_pain',
+    'arm_pain': 'muscle_pain',
+    'muscle_cramps': 'cramps',
+    'leg_cramps': 'cramps',
+    'muscle_spasm': 'cramps',
+
+    # ── Head / Migraine ─────────────────────────────────────────────────────
+    'headaches': 'headache',
+    'head_pain': 'headache',
+    'migraine_headache': 'headache',
+    'migraine': 'headache',
+    'head_throbbing': 'headache',
+    'pounding_head': 'headache',
+    'head_ache': 'headache',
+
+    # ── Vomiting / Nausea ──────────────────────────────────────────────────
+    'vomit': 'vomiting',
+    'vomits': 'vomiting',
+    'threw_up': 'vomiting',
+    'throw_up': 'vomiting',
+    'puke': 'vomiting',
+    'puking': 'vomiting',
+    'retching': 'vomiting',
+    'emesis': 'vomiting',
+    'nauseous': 'nausea',
+    'feel_sick': 'nausea',
+    'queasy': 'nausea',
+    'sick_to_stomach': 'nausea',
+    'motion_sickness': 'nausea',
+    'upset_stomach': 'nausea',
+
+    # ── Diarrhea / Constipation ─────────────────────────────────────────────
+    'diarrhea': 'diarrhoea',
+    'diarrheoa': 'diarrhoea',
+    'loose_stools': 'diarrhoea',
+    'loose_motion': 'diarrhoea',
+    'loose_motions': 'diarrhoea',
+    'watery_stools': 'diarrhoea',
+    'watery_diarrhea': 'diarrhoea',
+    'runs': 'diarrhoea',
+    'the_runs': 'diarrhoea',
+    'frequent_stools': 'diarrhoea',
+    'loose_bowel': 'diarrhoea',
+    'bowel_movements': 'diarrhoea',
+    'can_not_poop': 'constipation',
+    'hard_stool': 'constipation',
+    'no_bowel': 'constipation',
+    'difficulty_passing_stool': 'constipation',
+    'straining': 'constipation',
+
+    # ── Fatigue / Weakness ─────────────────────────────────────────────────
+    'tired': 'fatigue',
+    'tiredness': 'fatigue',
+    'exhaustion': 'fatigue',
+    'exhausted': 'fatigue',
+    'weakness': 'fatigue',
+    'weak': 'fatigue',
+    'no_energy': 'fatigue',
+    'run_down': 'fatigue',
+    'lethargy': 'lethargy',
+    'lethargic': 'lethargy',
+    'sluggish': 'lethargy',
+    'drowsy': 'lethargy',
+    'drowsiness': 'lethargy',
+    'low_energy': 'fatigue',
+    'always_tired': 'fatigue',
+    'feeling_weak': 'fatigue',
+    'weakness_in_legs': 'weakness_in_limbs',
+    'weakness_in_arms': 'weakness_in_limbs',
+    'limb_weakness': 'weakness_in_limbs',
+    'leg_weakness': 'weakness_in_limbs',
+
+    # ── Skin / Rash / Itching ──────────────────────────────────────────────
+    'rash': 'skin_rash',
+    'skin_lesion': 'skin_rash',
+    'hives': 'skin_rash',
+    'urticaria': 'skin_rash',
+    'skin_eruption': 'skin_rash',
+    'body_rash': 'skin_rash',
+    'blotchy_skin': 'skin_rash',
+    'itch': 'itching',
+    'itchy': 'itching',
+    'itch_skin': 'itching',
+    'pruritus': 'itching',
+    'itchy_skin': 'itching',
+    'itching_all_over': 'itching',
+    'skin_peeling': 'skin_peeling',
+    'peeling_skin': 'skin_peeling',
+    'flaky_skin': 'skin_peeling',
+    'blisters': 'blister',
+    'water_blisters': 'blister',
+    'vesicles': 'blister',
+    'pimples': 'pus_filled_pimples',
+    'acne_pimples': 'pus_filled_pimples',
+    'boils': 'pus_filled_pimples',
+    'red_spots': 'red_spots_over_body',
+    'spots': 'red_spots_over_body',
+    'petechiae': 'red_spots_over_body',
+    'blackheads': 'blackheads',
+    'whiteheads': 'blackheads',
+    'nodules': 'nodal_skin_eruptions',
+    'skin_nodules': 'nodal_skin_eruptions',
+    'patches': 'dischromic_patches',
+    'skin_patches': 'dischromic_patches',
+    'discolored_skin': 'dischromic_patches',
+
+    # ── Eyes ───────────────────────────────────────────────────────────────
+    'yellow_skin': 'yellowish_skin',
+    'jaundiced': 'yellowish_skin',
+    'jaundice_symptom': 'yellowish_skin',
+    'yellowish': 'yellowish_skin',
+    'yellow_tinge': 'yellowish_skin',
+    'yellow_eyes': 'yellowing_of_eyes',
+    'jaundiced_eyes': 'yellowing_of_eyes',
+    'yellow_sclera': 'yellowing_of_eyes',
+    'blurry_vision': 'blurred_and_distorted_vision',
+    'blurred_vision': 'blurred_and_distorted_vision',
+    'vision_problems': 'blurred_and_distorted_vision',
+    'double_vision': 'blurred_and_distorted_vision',
+    'poor_vision': 'blurred_and_distorted_vision',
+    'dim_vision': 'blurred_and_distorted_vision',
+    'visual_disturbance': 'visual_disturbances',
+    'eye_pain': 'pain_behind_the_eyes',
+    'pain_behind_eyes': 'pain_behind_the_eyes',
+    'orbital_pain': 'pain_behind_the_eyes',
+    'watery_eyes': 'watering_from_eyes',
+    'tearing': 'watering_from_eyes',
+    'eye_discharge': 'watering_from_eyes',
+
+    # ── Urinary ────────────────────────────────────────────────────────────
+    'burning_urination': 'burning_micturition',
+    'painful_urination': 'burning_micturition',
+    'dysuria': 'burning_micturition',
+    'pain_when_urinating': 'burning_micturition',
+    'uti_pain': 'burning_micturition',
+    'frequent_urination': 'polyuria',
+    'excessive_urination': 'polyuria',
+    'increased_urination': 'polyuria',
+    'peeing_a_lot': 'polyuria',
+    'peeing_frequently': 'polyuria',
+    'urge_to_urinate': 'continuous_feel_of_urine',
+    'urinary_urgency': 'continuous_feel_of_urine',
+    'always_need_to_pee': 'continuous_feel_of_urine',
+    'bladder_pain': 'bladder_discomfort',
+    'bladder_pressure': 'bladder_discomfort',
+    'smelly_urine': 'foul_smell_of_urine',
+    'foul_urine': 'foul_smell_of_urine',
+    'bad_smelling_urine': 'foul_smell_of_urine',
+    'dark_urine_color': 'dark_urine',
+    'dark_colored_urine': 'dark_urine',
+    'brown_urine': 'dark_urine',
+    'cola_colored_urine': 'dark_urine',
+    'tea_colored_urine': 'dark_urine',
+    'blood_in_urine': 'burning_micturition',
+    'hematuria': 'burning_micturition',
+
+    # ── Heart / Cardiovascular ─────────────────────────────────────────────
+    'palpitation': 'palpitations',
+    'heart_pounding': 'palpitations',
+    'heart_fluttering': 'palpitations',
+    'heart_skipping': 'palpitations',
+    'irregular_heartbeat': 'palpitations',
+    'racing_heart': 'fast_heart_rate',
+    'fast_heartbeat': 'fast_heart_rate',
+    'rapid_heart': 'fast_heart_rate',
+    'rapid_pulse': 'fast_heart_rate',
+    'tachycardia': 'fast_heart_rate',
+    'rapid_heart_rate': 'fast_heart_rate',
+    'heart_racing': 'fast_heart_rate',
+
+    # ── Weight / Appetite ───────────────────────────────────────────────────
+    'losing_weight': 'weight_loss',
+    'weight_reduction': 'weight_loss',
+    'lost_weight': 'weight_loss',
+    'unexplained_weight_loss': 'weight_loss',
+    'gaining_weight': 'weight_gain',
+    'weight_increase': 'weight_gain',
+    'no_appetite': 'loss_of_appetite',
+    'not_hungry': 'loss_of_appetite',
+    'not_eating': 'loss_of_appetite',
+    'anorexia': 'loss_of_appetite',
+    'poor_appetite': 'loss_of_appetite',
+    'reduced_appetite': 'loss_of_appetite',
+    'not_feeling_hungry': 'loss_of_appetite',
+    'always_hungry': 'excessive_hunger',
+    'increased_hunger': 'excessive_hunger',
+    'excessive_appetite': 'excessive_hunger',
+    'polyphagia': 'excessive_hunger',
+    'hungry_all_the_time': 'excessive_hunger',
+    'increased_appetite': 'increased_appetite',
+
+    # ── Sweating / Chills ───────────────────────────────────────────────────
+    'sweats': 'sweating',
+    'night_sweats': 'sweating',
+    'perspiring': 'sweating',
+    'perspiration': 'sweating',
+    'excessive_sweating': 'sweating',
+    'profuse_sweating': 'sweating',
+    'hyperhidrosis': 'sweating',
+    'chilled': 'chills',
+    'feeling_cold': 'chills',
+    'cold_sweats': 'chills',
+    'rigors': 'chills',
+    'shivering': 'shivering',
+    'shaky': 'shivering',
+    'shakiness': 'shivering',
+    'trembling': 'shivering',
+    'shaking': 'shivering',
+    'tremor': 'shivering',
+    'cold_hands': 'cold_hands_and_feets',
+    'cold_feet': 'cold_hands_and_feets',
+    'cold_extremities': 'cold_hands_and_feets',
+    'hands_and_feet_cold': 'cold_hands_and_feets',
+
+    # ── Throat / Nose / ENT ────────────────────────────────────────────────
+    'sore_throat': 'throat_irritation',
+    'throat_pain': 'throat_irritation',
+    'throat_sore': 'throat_irritation',
+    'throat_irritated': 'throat_irritation',
+    'scratchy_throat': 'throat_irritation',
+    'painful_swallowing': 'throat_irritation',
+    'dysphagia': 'throat_irritation',
+    'stuffy_nose': 'runny_nose',
+    'blocked_nose': 'runny_nose',
+    'nasal_congestion': 'runny_nose',
+    'runny_nose': 'runny_nose',
+    'nose_running': 'runny_nose',
+    'rhinorrhoea': 'runny_nose',
+    'sneezing': 'continuous_sneezing',
+    'sneeze': 'continuous_sneezing',
+    'frequent_sneezing': 'continuous_sneezing',
+    'keep_sneezing': 'continuous_sneezing',
+    'enlarged_thyroid': 'enlarged_thyroid',
+    'goiter': 'enlarged_thyroid',
+    'swollen_thyroid': 'enlarged_thyroid',
+    'neck_swelling': 'swelled_lymph_nodes',
+    'swollen_throat': 'swelled_lymph_nodes',
+    'swollen_glands': 'swelled_lymph_nodes',
+    'lymph_node': 'swelled_lymph_nodes',
+    'lymph_nodes': 'swelled_lymph_nodes',
+    'lymphadenopathy': 'swelled_lymph_nodes',
+
+    # ── Neurological / Mental ──────────────────────────────────────────────
+    'confused': 'altered_sensorium',
+    'confusion': 'altered_sensorium',
+    'disoriented': 'altered_sensorium',
+    'disorientation': 'altered_sensorium',
+    'mental_confusion': 'altered_sensorium',
+    'lack_of_concentration': 'lack_of_concentration',
+    'poor_concentration': 'lack_of_concentration',
+    'can_not_focus': 'lack_of_concentration',
+    'memory_loss': 'lack_of_concentration',
+    'brain_fog': 'lack_of_concentration',
+    'dizziness': 'dizziness',
+    'dizzy': 'dizziness',
+    'vertigo_symptom': 'dizziness',
+    'spinning': 'dizziness',
+    'spinning_sensation': 'spinning_movements',
+    'lightheaded': 'dizziness',
+    'light_headedness': 'dizziness',
+    'giddy': 'dizziness',
+    'unsteady': 'loss_of_balance',
+    'off_balance': 'loss_of_balance',
+    'balance_problems': 'loss_of_balance',
+    'unstable': 'unsteadiness',
+    'wobbly': 'unsteadiness',
+    'slurred_speech': 'slurred_speech',
+    'speech_problems': 'slurred_speech',
+    'can_not_talk_properly': 'slurred_speech',
+    'numbness': 'drying_and_tingling_lips',
+    'tingling': 'drying_and_tingling_lips',
+    'pins_and_needles': 'drying_and_tingling_lips',
+    'numbness_tingling': 'drying_and_tingling_lips',
+    'one_sided_weakness': 'weakness_of_one_body_side',
+    'one_side_weak': 'weakness_of_one_body_side',
+    'hemiplegia': 'weakness_of_one_body_side',
+    'irritable': 'irritability',
+    'easily_irritated': 'irritability',
+    'mood_change': 'mood_swings',
+    'mood_changes': 'mood_swings',
+    'emotional': 'mood_swings',
+    'depressed': 'depression',
+    'sad': 'depression',
+    'hopeless': 'depression',
+    'low_mood': 'depression',
+    'feeling_down': 'depression',
+    'anxiety': 'anxiety',
+    'anxious': 'anxiety',
+    'nervous': 'anxiety',
+    'worry': 'anxiety',
+    'worrying': 'anxiety',
+    'panic': 'anxiety',
+    'stress': 'restlessness',
+    'restless': 'restlessness',
+    'cant_sit_still': 'restlessness',
+
+    # ── Digestive / Gut ────────────────────────────────────────────────────
+    'acid_reflux': 'acidity',
+    'heartburn': 'acidity',
+    'acid_indigestion': 'acidity',
+    'acidic_stomach': 'acidity',
+    'indigestion': 'indigestion',
+    'dyspepsia': 'indigestion',
+    'gas': 'passage_of_gases',
+    'flatulence': 'passage_of_gases',
+    'wind': 'passage_of_gases',
+    'bloating': 'distention_of_abdomen',
+    'bloated': 'distention_of_abdomen',
+    'abdominal_bloating': 'distention_of_abdomen',
+    'swollen_belly': 'swelling_of_stomach',
+    'distended_abdomen': 'swelling_of_stomach',
+    'ascites': 'swelling_of_stomach',
+    'internal_itch': 'internal_itching',
+    'internal_itching': 'internal_itching',
+    'sunken_eyes': 'sunken_eyes',
+    'hollow_eyes': 'sunken_eyes',
+    'dehydration': 'dehydration',
+    'dehydrated': 'dehydration',
+    'thirst': 'dehydration',
+    'excessive_thirst': 'dehydration',
+    'very_thirsty': 'dehydration',
+    'polydipsia': 'dehydration',
+
+    # ── Blood / Stool ──────────────────────────────────────────────────────
+    'blood_in_stool': 'bloody_stool',
+    'bloody_stool': 'bloody_stool',
+    'blood_stool': 'bloody_stool',
+    'rectal_bleeding': 'bloody_stool',
+    'hematochezia': 'bloody_stool',
+    'blood_urine': 'burning_micturition',
+    'rusty_sputum': 'rusty_sputum',
+    'rust_colored_sputum': 'rusty_sputum',
+    'blood_sputum': 'blood_in_sputum',
+
+    # ── Swelling / Edema ───────────────────────────────────────────────────
+    'swollen_legs': 'swollen_legs',
+    'ankle_swelling': 'swollen_legs',
+    'leg_swelling': 'swollen_legs',
+    'edema': 'swollen_legs',
+    'swollen_extremeties': 'swollen_extremeties',
+    'puffy_face': 'puffy_face_and_eyes',
+    'swollen_face': 'puffy_face_and_eyes',
+    'face_swelling': 'puffy_face_and_eyes',
+    'puffiness': 'puffy_face_and_eyes',
+    'bruising': 'bruising',
+    'easy_bruising': 'bruising',
+    'bruises': 'bruising',
+
+    # ── Nails / Hair / Skin Texture ────────────────────────────────────────
+    'brittle_nails': 'brittle_nails',
+    'breaking_nails': 'brittle_nails',
+    'nail_changes': 'brittle_nails',
+    'nail_pits': 'small_dents_in_nails',
+    'nail_pitting': 'small_dents_in_nails',
+    'inflamed_nails': 'inflammatory_nails',
+    'hair_loss': 'hair_loss',
+    'scar': 'scurring',
+    'scarring': 'scurring',
+    'acne_scars': 'scurring',
+
+    # ── Miscellaneous ──────────────────────────────────────────────────────
+    'malaise': 'malaise',
+    'unwell': 'malaise',
+    'generally_unwell': 'malaise',
+    'feeling_unwell': 'malaise',
+    'not_feeling_well': 'malaise',
+    'obesity': 'obesity',
+    'overweight': 'obesity',
+    'prominent_veins': 'prominent_veins_on_calf',
+    'varicose': 'prominent_veins_on_calf',
+    'muscle_wasting': 'muscle_wasting',
+    'muscle_loss': 'muscle_wasting',
+    'wasting': 'muscle_wasting',
+    'patches_throat': 'patches_in_throat',
+    'throat_patches': 'patches_in_throat',
+    'white_patches': 'patches_in_throat',
+    'irregular_sugar': 'irregular_sugar_level',
+    'blood_sugar_high': 'irregular_sugar_level',
+    'high_blood_sugar': 'irregular_sugar_level',
+    'hyperglycemia': 'irregular_sugar_level',
+    'fluid_retention': 'fluid_overload',
+    'water_retention': 'fluid_overload',
+    'sores': 'ulcers_on_tongue',
+    'mouth_ulcers': 'ulcers_on_tongue',
+    'canker_sores': 'ulcers_on_tongue',
+    'painful_walking': 'painful_walking',
+    'difficulty_walking': 'painful_walking',
+    'limping': 'painful_walking',
+    'movement_stiffness': 'movement_stiffness',
+    'stiff_joints': 'movement_stiffness',
+    'morning_stiffness': 'movement_stiffness',
+    'muscle_weakness': 'muscle_weakness',
+    'weak_muscles': 'muscle_weakness',
+    'silver_scaling': 'silver_like_dusting',
+    'silver_scales': 'silver_like_dusting',
+    'scaly_skin': 'silver_like_dusting',
+    'red_sore_nose': 'red_sore_around_nose',
+    'sore_around_nose': 'red_sore_around_nose',
+    'yellow_crust': 'yellow_crust_ooze',
+    'crusting': 'yellow_crust_ooze',
+    'oozing': 'yellow_crust_ooze',
+    'pain_in_anus': 'pain_in_anal_region',
+    'anal_pain': 'pain_in_anal_region',
+    'rectal_pain': 'pain_in_anal_region',
+    'anal_itch': 'irritation_in_anus',
+    'rectal_itch': 'irritation_in_anus',
+    'pain_bowel': 'pain_during_bowel_movements',
+    'painful_poop': 'pain_during_bowel_movements',
+    'acute_liver_failure': 'acute_liver_failure',
+    'liver_failure': 'acute_liver_failure',
+    'stomach_bleeding': 'stomach_bleeding',
+    'gi_bleeding': 'stomach_bleeding',
+    'gastrointestinal_bleeding': 'stomach_bleeding',
+    'coma': 'coma',
+    'unconscious': 'coma',
+    'loss_of_consciousness': 'coma',
+    'fainted': 'coma',
+    'family_history': 'family_history',
+    'hepatitis_history': 'family_history',
+    'blood_transfusion': 'receiving_blood_transfusion',
+    'transfusion': 'receiving_blood_transfusion',
+    'unsterile_injection': 'receiving_unsterile_injections',
+    'dirty_needle': 'receiving_unsterile_injections',
+    'alcohol': 'history_of_alcohol_consumption',
+    'drinking': 'history_of_alcohol_consumption',
+    'alcoholic': 'history_of_alcohol_consumption',
+    'alcohol_use': 'history_of_alcohol_consumption',
+    'extra_marital': 'extra_marital_contacts',
+    'unsafe_sex': 'extra_marital_contacts',
+    'unprotected_sex': 'extra_marital_contacts',
+    'spotting': 'spotting_urination',
+    'urinary_spotting': 'spotting_urination',
+}
+
+
+def normalize_symptom(raw_symptom, symptom_list):
+    """
+    Normalize a single user-typed symptom to a canonical symptom from symptom_list.
+
+    Steps:
+      1. Basic lowercase/strip/underscore normalization
+      2. Direct match against symptom_list
+      3. Synonym map lookup (expanded: 300+ entries)
+      4. Prefix-stripped synonym attempt (handle e.g. 'have_fever' → 'fever' → synonym)
+      5. Token-overlap fuzzy match
+      6. Substring containment match
+
+    Returns (canonical_symptom_or_None, matched_as)
+    """
+    # Step 1: basic normalization
+    s = raw_symptom.lower().strip()
+    s = s.replace(' ', '_').replace('-', '_').replace('/', '_')
+    s = ''.join(c for c in s if c.isalnum() or c == '_')
+    while '__' in s:
+        s = s.replace('__', '_')
+    s = s.strip('_')
+
+    if not s:
+        return None, None
+
+    # Build a fast lookup set
+    symptom_set = set(symptom_list)
+
+    # Step 2: direct match
+    if s in symptom_set:
+        return s, 'direct'
+
+    # Step 3: synonym map
+    if s in SYMPTOM_SYNONYMS:
+        canonical = SYMPTOM_SYNONYMS[s]
+        if canonical in symptom_set:
+            return canonical, 'synonym'
+
+    # Step 3b: try stripping common prefixes/suffixes then re-check synonyms
+    for prefix in ('have_', 'having_', 'feeling_', 'feel_', 'experiencing_', 'suffer_', 'suffering_from_'):
+        if s.startswith(prefix):
+            stripped = s[len(prefix):]
+            if stripped in symptom_set:
+                return stripped, 'prefix_direct'
+            if stripped in SYMPTOM_SYNONYMS:
+                c = SYMPTOM_SYNONYMS[stripped]
+                if c in symptom_set:
+                    return c, 'prefix_synonym'
+
+    # Step 4: Token-overlap fuzzy match
+    s_tokens = set(s.split('_'))
+    # Remove very short stop-words that add noise
+    s_tokens -= {'a', 'an', 'the', 'of', 'in', 'and', 'or', 'to', 'my', 'i'}
+    if not s_tokens:
+        return None, None
+
+    best_match = None
+    best_score = 0.0
+    for sym in symptom_list:
+        sym_tokens = set(sym.split('_'))
+        overlap = len(s_tokens & sym_tokens)
+        if overlap == 0:
+            continue
+        # Jaccard-like score weighted by overlap fraction of query tokens
+        score = overlap / max(len(s_tokens), 1)
+        if score > best_score and overlap >= max(1, len(s_tokens) - 1):
+            best_score = score
+            best_match = sym
+    if best_match and best_score >= 0.5:
+        return best_match, 'fuzzy'
+
+    # Step 5: Substring containment — symptom_list entry contains the whole query as a substring
+    for sym in symptom_list:
+        if s in sym or sym in s:
+            return sym, 'substring'
+
+    return None, None
 
 
 # ============================================================
@@ -489,6 +1063,29 @@ def allowed_file(filename):
     return '.' in filename and filename.rsplit('.', 1)[1].lower() in Config.ALLOWED_EXTENSIONS
 
 
+def get_raw_array_for_validation(image, target_size=(224, 224), mode='L'):
+    """
+    Lightweight image array for validate_image_type() ONLY.
+
+    Deliberately does NOT apply CLAHE, contrast enhancement, sharpening, or
+    percentile-based normalization — just convert + resize + plain /255.
+    validate_image_type()'s heuristics (brightness, dark_ratio, bright_ratio,
+    entropy thresholds) were tuned against an image's natural, unmodified
+    contrast. Percentile normalization in particular always stretches
+    contrast to span nearly the full [0,1] range regardless of the original
+    image's true brightness, which silently broke every one of those
+    thresholds and caused correct images to be rejected as "wrong type."
+    """
+    img = image.convert(mode)
+    img = img.resize(target_size, Image.LANCZOS)
+    arr = np.array(img, dtype=np.float32) / 255.0
+    if mode == 'L':
+        arr = arr.reshape(1, target_size[0], target_size[1], 1)
+    else:
+        arr = arr.reshape(1, target_size[0], target_size[1], 3)
+    return arr
+
+
 def preprocess_image_for_skin(image, target_size=(224, 224)):
     """Preprocess for skin model - RGB, normalized to [0,1]"""
     image = image.resize(target_size, Image.LANCZOS)
@@ -498,24 +1095,45 @@ def preprocess_image_for_skin(image, target_size=(224, 224)):
 
 
 def preprocess_image_for_xray(image, target_size=(224, 224)):
-    """Preprocess for pneumonia model - Grayscale, normalized to [0,1]"""
+    """Preprocess for pneumonia model - Grayscale, CLAHE enhanced, normalized to [0,1]"""
     image = image.resize(target_size, Image.LANCZOS)
     image = image.convert('L')
     img_array = np.array(image, dtype=np.float32) / 255.0
+    
+    # Apply CLAHE to match model training preprocessing
+    try:
+        import cv2
+        img_uint8 = (img_array * 255.0).astype(np.uint8)
+        clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
+        img_array = clahe.apply(img_uint8).astype(np.float32) / 255.0
+    except ImportError:
+        pass
+        
     img_array = np.expand_dims(img_array, axis=-1)
     return np.expand_dims(img_array, axis=0)
 
 
 def preprocess_image_for_breast(image, target_size=(224, 224)):
-    """Preprocess for breast model - Grayscale, normalized to [0,1]"""
-    image = image.resize(target_size, Image.LANCZOS)
+    """Preprocess for breast model - CLAHE-like enhancement, sharpen, normalized to [0,1]"""
     image = image.convert('L')
-    img_array = np.array(image, dtype=np.float32) / 255.0
+    from PIL import ImageEnhance, ImageFilter
+    enhancer = ImageEnhance.Contrast(image)
+    image = enhancer.enhance(1.3)
+    image = image.filter(ImageFilter.SHARPEN)
+    image = image.resize(target_size, Image.LANCZOS)
+    
+    img_array = np.array(image, dtype=np.float32)
+    p2, p98 = np.percentile(img_array, (2, 98))
+    if p98 - p2 > 0:
+        img_array = np.clip((img_array - p2) / (p98 - p2), 0, 1)
+    else:
+        img_array = img_array / 255.0
+        
     img_array = np.expand_dims(img_array, axis=-1)
     return np.expand_dims(img_array, axis=0)
 
 
-def preprocess_image_for_heart(image, target_size=(224, 224)):
+def preprocess_image_for_heart(image, target_size=(256, 256)):
     """Preprocess for heart/ECG model - Grayscale, normalized to [0,1]"""
     image = image.resize(target_size, Image.LANCZOS)
     image = image.convert('L')
@@ -526,8 +1144,8 @@ def preprocess_image_for_heart(image, target_size=(224, 224)):
 
 def analyze_image_basic(img_array):
     """
-    Perform basic image analysis for better demo mode predictions.
-    Returns statistics that can guide demo predictions.
+    Perform basic image analysis for input image diagnostics.
+    Returns statistics that can guide predictions and validation.
     """
     if len(img_array.shape) == 4:
         img = img_array[0]
@@ -957,142 +1575,10 @@ def get_disease_recommendations(disease_name, confidence):
 #              DEMO MODE HELPERS
 # ============================================================
 
-def get_demo_skin_prediction(processed_image):
-    """Generate a demo skin prediction based on basic image analysis."""
-    stats = analyze_image_basic(processed_image)
-
-    # Use image characteristics to make a somewhat reasonable demo prediction
-    demo_idx = 5  # Default: Melanocytic Nevi (most common, benign)
-    demo_confidence = 0.72
-
-    if stats.get('very_dark_ratio', 0) > 0.15:
-        # Very dark lesion -> higher chance of melanoma
-        demo_idx = 4  # Melanoma
-        demo_confidence = 0.48
-    elif stats.get('red_ratio', 0) > 0.15:
-        # Reddish -> vascular or BCC
-        if stats.get('dark_ratio', 0) > 0.3:
-            demo_idx = 1  # BCC
-            demo_confidence = 0.55
-        else:
-            demo_idx = 6  # Vascular
-            demo_confidence = 0.60
-    elif stats.get('brown_ratio', 0) > 0.25:
-        # Brown -> benign keratosis or nevi
-        demo_idx = 2  # Benign Keratosis
-        demo_confidence = 0.65
-    elif stats.get('blue_white_ratio', 0) > 0.05:
-        # Blue-white structures -> melanoma concern
-        demo_idx = 4  # Melanoma
-        demo_confidence = 0.42
-    elif stats.get('brightness', 0.5) > 0.6:
-        # Lighter lesion
-        demo_idx = 3  # Dermatofibroma
-        demo_confidence = 0.58
-    else:
-        demo_idx = 5  # Melanocytic Nevi
-        demo_confidence = 0.70
-
-    class_info = SKIN_CANCER_CLASSES[demo_idx]
-
-    # Generate fake all_predictions with realistic distribution
-    all_preds = []
-    remaining = 1.0 - demo_confidence
-    other_indices = [i for i in range(7) if i != demo_idx]
-    np.random.seed(hash(str(stats.get('brightness', 0.5))) % (2 ** 31))
-    other_probs = np.random.dirichlet(np.ones(6)) * remaining
-
-    for rank, idx in enumerate(other_indices):
-        info = SKIN_CANCER_CLASSES[idx]
-        all_preds.append({
-            'name': info['name'],
-            'code': info['code'],
-            'type': info['type'],
-            'confidence': float(other_probs[rank]),
-            'confidence_percent': f"{float(other_probs[rank]) * 100:.1f}%",
-            'severity': info['severity']
-        })
-
-    # Insert the top prediction
-    all_preds.append({
-        'name': class_info['name'],
-        'code': class_info['code'],
-        'type': class_info['type'],
-        'confidence': float(demo_confidence),
-        'confidence_percent': f"{float(demo_confidence) * 100:.1f}%",
-        'severity': class_info['severity']
-    })
-    all_preds.sort(key=lambda x: x['confidence'], reverse=True)
-
-    stage_info = get_stage_info('skin', class_info, demo_confidence)
-
-    return {
-        'success': True,
-        'demo_mode': True,
-        'prediction': {
-            'name': class_info['name'],
-            'code': class_info['code'],
-            'type': class_info['type'],
-            'confidence': float(demo_confidence),
-            'confidence_percent': f"{float(demo_confidence) * 100:.1f}%"
-        },
-        'severity': class_info['severity'],
-        'all_predictions': all_preds[:5],
-        'staging': stage_info,
-        'recommendations': get_skin_recommendations(class_info, demo_confidence),
-        'treatment_options': get_treatment_options('skin', class_info, stage_info),
-        'urgency': get_urgency_timeline(class_info['severity']),
-        'note': 'DEMO MODE: No trained model found. Train the model with image_classification.py for accurate results.'
-    }
 
 
-def get_demo_pneumonia_prediction(processed_image):
-    """Generate a demo pneumonia prediction based on basic image analysis."""
-    stats = analyze_image_basic(processed_image)
 
-    # X-rays with more white/hazy areas suggest pneumonia
-    white_ratio = stats.get('white_ratio', 0.3)
-    brightness = stats.get('brightness', 0.4)
 
-    if white_ratio > 0.35 or brightness > 0.55:
-        demo_idx = 1  # Pneumonia
-        demo_confidence = 0.68
-    else:
-        demo_idx = 0  # Normal
-        demo_confidence = 0.75
-
-    class_info = PNEUMONIA_CLASSES[demo_idx]
-
-    normal_conf = demo_confidence if demo_idx == 0 else (1.0 - demo_confidence)
-    pneumonia_conf = demo_confidence if demo_idx == 1 else (1.0 - demo_confidence)
-
-    all_preds = [
-        {'name': 'Normal', 'code': 'normal', 'confidence': float(normal_conf),
-         'confidence_percent': f"{float(normal_conf) * 100:.1f}%", 'severity': 'healthy'},
-        {'name': 'Pneumonia', 'code': 'pneumonia', 'confidence': float(pneumonia_conf),
-         'confidence_percent': f"{float(pneumonia_conf) * 100:.1f}%", 'severity': 'high'}
-    ]
-    all_preds.sort(key=lambda x: x['confidence'], reverse=True)
-
-    stage_info = get_stage_info('pneumonia', class_info, demo_confidence)
-
-    return {
-        'success': True,
-        'demo_mode': True,
-        'prediction': {
-            'name': class_info['name'],
-            'code': class_info['code'],
-            'confidence': float(demo_confidence),
-            'confidence_percent': f"{float(demo_confidence) * 100:.1f}%"
-        },
-        'severity': class_info['severity'],
-        'all_predictions': all_preds,
-        'staging': stage_info,
-        'recommendations': get_pneumonia_recommendations(class_info, demo_confidence),
-        'treatment_options': get_treatment_options('pneumonia', class_info, stage_info),
-        'urgency': get_urgency_timeline(class_info['severity']),
-        'note': 'DEMO MODE: No trained model found. Train the model for accurate results.'
-    }
 
 
 # ============================================================
@@ -1127,6 +1613,14 @@ def load_models():
         return
 
     if TF_AVAILABLE:
+        # Enable unsafe deserialization for custom lambda layers in Keras 3 / TF 2.16+
+        if hasattr(keras, 'config') and hasattr(keras.config, 'enable_unsafe_deserialization'):
+            try:
+                keras.config.enable_unsafe_deserialization()
+                logger.info("🔓 Enabled unsafe deserialization in Keras config")
+            except Exception as e:
+                logger.warning(f"Could not enable unsafe deserialization: {e}")
+
         for model_key, config_key, model_name in [
             ('skin_cancer', 'skin_config', 'Skin cancer'),
             ('heart_image', 'heart_config', 'Heart image'),
@@ -1136,15 +1630,26 @@ def load_models():
             if os.path.exists(MODEL_PATHS[model_key]):
                 try:
                     # compile=False avoids the "string indices must be integers"
-                    # error in TensorFlow 2.18+ when loading older .h5 models
-                    models[model_key] = keras.models.load_model(
-                        MODEL_PATHS[model_key], compile=False
-                    )
+                    # error in TensorFlow 2.18+ when loading older .h5 models.
+                    # safe_mode=False is required in Keras 3 to load Lambda layers.
+                    try:
+                        models[model_key] = keras.models.load_model(
+                            MODEL_PATHS[model_key], compile=False, safe_mode=False
+                        )
+                    except TypeError:
+                        models[model_key] = keras.models.load_model(
+                            MODEL_PATHS[model_key], compile=False
+                        )
                     logger.info(f"✅ {model_name} model loaded")
                     cfg_path = MODEL_PATHS.get(config_key)
                     if cfg_path and os.path.exists(cfg_path):
                         with open(cfg_path) as f:
                             configs[model_key] = json.load(f)
+                        # For pneumonia, also cache the optimal threshold so analyze_xray
+                        # can use it without hardcoding 0.35
+                        if model_key == 'pneumonia' and 'optimal_threshold' in configs.get('pneumonia', {}):
+                            models['pneumonia_threshold'] = float(configs['pneumonia']['optimal_threshold'])
+                            logger.info(f"✅ Pneumonia optimal threshold loaded: {models['pneumonia_threshold']:.4f}")
                 except Exception as e:
                     logger.error(f"❌ Failed to load {model_name} model: {e}")
             else:
@@ -1152,36 +1657,45 @@ def load_models():
     else:
         logger.warning("⚠️ TensorFlow not available - image models will not load")
 
-    # Scikit-learn models
-    if os.path.exists(MODEL_PATHS['disease']):
+    # Scikit-learn models (Enforce all-or-nothing loading of models and their dependencies)
+    if os.path.exists(MODEL_PATHS['disease']) and os.path.exists(MODEL_PATHS['label_encoder']) and os.path.exists(MODEL_PATHS['symptom_list']):
         try:
             models['disease'] = joblib.load(MODEL_PATHS['disease'])
-            logger.info("✅ Disease prediction model loaded")
-            if os.path.exists(MODEL_PATHS['label_encoder']):
-                models['label_encoder'] = joblib.load(MODEL_PATHS['label_encoder'])
-            if os.path.exists(MODEL_PATHS['symptom_list']):
-                with open(MODEL_PATHS['symptom_list']) as f:
-                    models['symptom_list'] = json.load(f)
+            models['label_encoder'] = joblib.load(MODEL_PATHS['label_encoder'])
+            with open(MODEL_PATHS['symptom_list']) as f:
+                models['symptom_list'] = json.load(f)
+            logger.info("✅ Disease prediction model & dependencies loaded successfully")
         except Exception as e:
-            logger.error(f"❌ Failed to load disease model: {e}")
+            logger.error(f"❌ Failed to load disease model or its dependencies: {e}")
+            models.pop('disease', None)
+            models.pop('label_encoder', None)
+            models.pop('symptom_list', None)
+    else:
+        logger.warning("⚠️ Disease prediction model or dependencies missing — please train the model first")
 
-    if os.path.exists(MODEL_PATHS['cancer']):
+    if os.path.exists(MODEL_PATHS['cancer']) and os.path.exists(MODEL_PATHS['cancer_scaler']):
         try:
             models['cancer'] = joblib.load(MODEL_PATHS['cancer'])
-            logger.info("✅ Cancer screening model loaded")
-            if os.path.exists(MODEL_PATHS['cancer_scaler']):
-                models['cancer_scaler'] = joblib.load(MODEL_PATHS['cancer_scaler'])
+            models['cancer_scaler'] = joblib.load(MODEL_PATHS['cancer_scaler'])
+            logger.info("✅ Cancer screening model & scaler loaded successfully")
         except Exception as e:
-            logger.error(f"❌ Failed to load cancer model: {e}")
+            logger.error(f"❌ Failed to load cancer model or scaler: {e}")
+            models.pop('cancer', None)
+            models.pop('cancer_scaler', None)
+    else:
+        logger.warning("⚠️ Cancer screening model or its scaler missing — please train the model first")
 
-    if os.path.exists(MODEL_PATHS['heart_disease']):
+    if os.path.exists(MODEL_PATHS['heart_disease']) and os.path.exists(MODEL_PATHS['heart_scaler']):
         try:
             models['heart_risk'] = joblib.load(MODEL_PATHS['heart_disease'])
-            if os.path.exists(MODEL_PATHS['heart_scaler']):
-                models['heart_scaler'] = joblib.load(MODEL_PATHS['heart_scaler'])
-            logger.info("✅ Heart risk model loaded")
+            models['heart_scaler'] = joblib.load(MODEL_PATHS['heart_scaler'])
+            logger.info("✅ Heart risk model & scaler loaded successfully")
         except Exception as e:
-            logger.error(f"❌ Failed to load heart risk model: {e}")
+            logger.error(f"❌ Failed to load heart risk model or scaler: {e}")
+            models.pop('heart_risk', None)
+            models.pop('heart_scaler', None)
+    else:
+        logger.warning("⚠️ Heart risk model or its scaler missing — please train the model first")
 
     logger.info("=" * 50)
     logger.info(f"Models loaded: {list(models.keys())}")
@@ -1235,8 +1749,7 @@ def get_symptoms():
     if 'symptom_list' in models:
         symptoms = [s.replace('_', ' ').title() for s in models['symptom_list']]
         return jsonify({'success': True, 'symptoms': symptoms, 'count': len(symptoms)})
-    symptoms = [s.replace('_', ' ').title() for s in DEMO_SYMPTOMS]
-    return jsonify({'success': True, 'symptoms': symptoms, 'count': len(symptoms), 'demo_mode': True})
+    return jsonify({'success': False, 'error': 'Symptom list not loaded. Please ensure the disease model is trained and all model files are present.'}, ), 503
 
 
 # ============================================================
@@ -1257,45 +1770,24 @@ def predict_disease():
     if not symptoms:
         return jsonify({'success': False, 'error': 'No symptoms provided'}), 400
 
-    normalized_symptoms = [s.lower().strip().replace(' ', '_') for s in symptoms]
+    # Use smart normalization: direct match → synonym map → fuzzy fallback
+    # (resolves 'fever' → 'high_fever', 'diarrhea' → 'diarrhoea', etc.)
+    _sym_list_for_norm = models.get('symptom_list', [])
+    normalized_map = {}  # raw_input → canonical
+    for raw in symptoms:
+        canonical, _ = normalize_symptom(raw, _sym_list_for_norm)
+        normalized_map[raw] = canonical
+    normalized_symptoms = [v for v in normalized_map.values() if v is not None]
 
     if 'disease' not in models or 'label_encoder' not in models:
-        # Demo mode — pick a plausible disease and apply confidence floor
-        demo_conf = CONFIDENCE_FLOOR
-        demo_disease_name = 'Common Cold'
-        demo_diseases = [
-            {'disease': demo_disease_name, 'probability': demo_conf},
-            {'disease': 'Influenza', 'probability': round(1 - demo_conf - 0.08, 2)},
-            {'disease': 'Allergic Rhinitis', 'probability': 0.07},
-            {'disease': 'Sinusitis', 'probability': 0.02},
-            {'disease': 'Bronchitis', 'probability': 0.01},
-        ]
-        info = DISEASE_INFO.get(demo_disease_name, {})
         return jsonify({
-            'success': True,
-            'demo_mode': True,
-            'confidence': demo_conf,
-            'confidence_percent': f"{demo_conf * 100:.1f}%",
-            'prediction': {
-                'disease': demo_disease_name,
-                'confidence': demo_conf,
-                'confidence_percent': f"{demo_conf * 100:.1f}%",
-            },
-            'top_predictions': demo_diseases,
-            # ─── Fields SymptomDiagnosis.jsx renders ─────────────────────────
-            'description': info.get('description', ''),
-            'precautions': info.get('precautions', []),
-            'alternative_diagnoses': [
-                {'disease': d['disease'], 'confidence': d['probability']}
-                for d in demo_diseases[1:]
-            ],
-            'symptoms_analyzed': symptoms,
-            'recommendations': get_disease_recommendations(demo_disease_name, demo_conf),
-            'note': 'Demo mode — train the disease model for real predictions.',
-        })
+            'success': False,
+            'error': 'Disease prediction model is not loaded. Please train the model first using disease_prediction_v2.py.',
+            'hint': 'Run: python ml_model/disease_prediction_v2.py'
+        }), 503
 
     try:
-        symptom_list = models.get('symptom_list', DEMO_SYMPTOMS)
+        symptom_list = models.get('symptom_list', [])
 
         try:
             if hasattr(models['disease'], 'n_features_in_'):
@@ -1315,16 +1807,19 @@ def predict_disease():
         matched_symptoms = []
         unmatched_symptoms = []
 
-        for symptom in normalized_symptoms:
-            if symptom in symptom_list:
-                idx = symptom_list.index(symptom)
+        # Build set for fast lookup
+        symptom_set = set(symptom_list)
+
+        for raw_input, canonical in normalized_map.items():
+            if canonical and canonical in symptom_set:
+                idx = symptom_list.index(canonical)
                 if idx < expected_features:
                     feature_vector[idx] = 1
-                    matched_symptoms.append(symptom)
+                    matched_symptoms.append(canonical)
                 else:
-                    unmatched_symptoms.append(symptom)
+                    unmatched_symptoms.append(raw_input)
             else:
-                unmatched_symptoms.append(symptom)
+                unmatched_symptoms.append(raw_input)
 
         if len(matched_symptoms) == 0:
             return jsonify({
@@ -1337,7 +1832,18 @@ def predict_disease():
         feature_vector = feature_vector.reshape(1, -1)
 
         if hasattr(models['disease'], 'predict_proba'):
-            probabilities = models['disease'].predict_proba(feature_vector)[0]
+            raw_probs = models['disease'].predict_proba(feature_vector)[0]
+
+            # ── Temperature scaling: sharpen the probability distribution ──
+            # A VotingClassifier over 42 classes naturally spreads probability
+            # flat (giving 5-25% even for strong predictions). Temperature
+            # scaling with T < 1 sharpens it: p_new[i] ∝ p[i]^(1/T).
+            # T=0.5 means we square each probability then renormalize.
+            # This is the standard post-hoc calibration fix for over-smooth ensembles.
+            TEMPERATURE = 0.5
+            sharpened = np.power(raw_probs + 1e-9, 1.0 / TEMPERATURE)
+            probabilities = sharpened / sharpened.sum()
+
             predicted_idx = int(np.argmax(probabilities))
             confidence = float(probabilities[predicted_idx])
             top_indices = np.argsort(probabilities)[::-1][:5]
@@ -1352,9 +1858,6 @@ def predict_disease():
             top_predictions = [{'disease': disease_name, 'probability': confidence}]
 
         disease_name = models['label_encoder'].inverse_transform([predicted_idx])[0]
-
-        # Apply floor so the UI never shows a suspiciously small confidence
-        confidence = max(confidence, REAL_MODEL_FLOOR)
 
         # Enrich with disease info for the frontend
         info = DISEASE_INFO.get(disease_name, {})
@@ -1383,26 +1886,7 @@ def predict_disease():
         })
     except Exception as e:
         logger.error(f"Disease prediction error: {e}\n{traceback.format_exc()}")
-        fallback_conf = CONFIDENCE_FLOOR
-        fallback_name = 'Common Cold'
-        info = DISEASE_INFO.get(fallback_name, {})
-        return jsonify({
-            'success': True, 'demo_mode': True,
-            'confidence': fallback_conf,
-            'confidence_percent': f"{fallback_conf * 100:.1f}%",
-            'prediction': {
-                'disease': fallback_name,
-                'confidence': fallback_conf,
-                'confidence_percent': f"{fallback_conf * 100:.1f}%",
-            },
-            'description': info.get('description', ''),
-            'precautions': info.get('precautions', []),
-            'alternative_diagnoses': [],
-            'top_predictions': [{'disease': fallback_name, 'probability': fallback_conf}],
-            'symptoms_analyzed': symptoms,
-            'recommendations': get_disease_recommendations(fallback_name, fallback_conf),
-            'note': f'Demo mode due to error: {str(e)[:100]}',
-        })
+        return jsonify({'success': False, 'error': f'Prediction failed: {str(e)[:200]}'}), 500
 
 
 # ============================================================
@@ -1433,24 +1917,13 @@ def predict_cancer():
         features = np.array([[float(data[f]) for f in required_features]])
 
         if 'cancer' not in models:
-            # ── Demo mode ───────────────────────────────────────────────
-            risk_score = (
-                (features[0][0] - 14.0) * 0.3 +
-                (features[0][2] - 90.0) * 0.05 +
-                (features[0][3] - 650.0) * 0.002 +
-                features[0][6] * 8.0 +
-                features[0][7] * 15.0 +
-                (features[0][5] - 0.08) * 10.0
-            )
-            probability = float(np.clip(1 / (1 + np.exp(-risk_score)), 0.05, 0.95))
-            prediction = 'Malignant' if probability > 0.5 else 'Benign'
-            confidence = probability if probability > 0.5 else (1 - probability)
-            confidence = max(confidence, CONFIDENCE_FLOOR)
-            is_demo = True
+            return jsonify({
+                'success': False,
+                'error': 'Cancer screening model is not loaded. Please train the model first.',
+                'hint': 'Run: python ml_model/train_cancer_model.py'
+            }), 503
         else:
             # ── Real model ──────────────────────────────────────────────
-            is_demo = False
-
             # Scale features
             if 'cancer_scaler' in models:
                 features_scaled = models['cancer_scaler'].transform(features)
@@ -1462,15 +1935,6 @@ def predict_cancer():
                 raw_probability = float(probabilities[1])
 
                 # ★ FIX: Temperature scaling to prevent overconfident outputs
-                # Tree ensembles (RF, GB) often output near 0.0 or 1.0
-                # Temperature > 1 softens these to realistic medical ranges
-                #
-                # How it works:
-                #   raw 0.001 (0.1%)  → scaled ~4.7%   (realistic benign)
-                #   raw 0.01  (1.0%)  → scaled ~8.6%   (realistic benign)
-                #   raw 0.99  (99%)   → scaled ~91.4%  (realistic malignant)
-                #   raw 0.999 (99.9%) → scaled ~95.3%  (realistic malignant)
-
                 TEMPERATURE = 1.5  # >1 = softer, 1 = no change, <1 = sharper
 
                 # Clamp raw to avoid log(0)
@@ -1486,7 +1950,6 @@ def predict_cancer():
 
                 prediction = 'Malignant' if probability > 0.5 else 'Benign'
                 confidence = probability if probability > 0.5 else (1 - probability)
-                confidence = max(confidence, CONFIDENCE_FLOOR)
             else:
                 pred_class = int(models['cancer'].predict(features_scaled)[0])
                 prediction = 'Malignant' if pred_class == 1 else 'Benign'
@@ -1516,7 +1979,6 @@ def predict_cancer():
 
         return jsonify({
             'success': True,
-            'demo_mode': is_demo,
             'prediction': prediction,
             'probability': probability,
             'confidence': confidence,
@@ -1560,41 +2022,29 @@ def predict_heart():
         if float(data['ca']) > 0: risk_factors.append('Vessel abnormalities')
 
         if 'heart_risk' not in models:
-            # ── Demo mode ───────────────────────────────────────────────
-            age_risk = (float(data['age']) - 30) * 0.02
-            bp_risk = (float(data['trestbps']) - 120) * 0.01
-            chol_risk = (float(data['chol']) - 200) * 0.005
-            hr_factor = (180 - float(data['thalach'])) * 0.01
-            cp_risk = float(data['cp']) * 0.15
-            vessels_risk = float(data['ca']) * 0.2
-            risk_score = age_risk + bp_risk + chol_risk + hr_factor + cp_risk + vessels_risk
-            probability = float(np.clip(1 / (1 + np.exp(-risk_score)), 0.05, 0.95))
+            return jsonify({
+                'success': False,
+                'error': 'Heart risk model is not loaded. Please train the model first.',
+                'hint': 'Run: python ml_model/train_heart_model.py'
+            }), 503
+
+        # ── Real model ──────────────────────────────────────────────
+        # ALWAYS scale first, THEN predict
+        if 'heart_scaler' in models:
+            features_scaled = models['heart_scaler'].transform(features)
+        else:
+            features_scaled = features
+
+        if hasattr(models['heart_risk'], 'predict_proba'):
+            probabilities = models['heart_risk'].predict_proba(features_scaled)[0]
+            probability = float(probabilities[1])
             prediction = 'High Risk' if probability > 0.5 else 'Low Risk'
             confidence = probability if probability > 0.5 else (1 - probability)
-            confidence = max(confidence, CONFIDENCE_FLOOR)
-            is_demo = True
         else:
-            # ── Real model ──────────────────────────────────────────────
-            is_demo = False
-
-            # ALWAYS scale first, THEN predict
-            if 'heart_scaler' in models:
-                features_scaled = models['heart_scaler'].transform(features)
-            else:
-                features_scaled = features
-
-            if hasattr(models['heart_risk'], 'predict_proba'):
-                probabilities = models['heart_risk'].predict_proba(features_scaled)[0]
-                probability = float(probabilities[1])
-                prediction = 'High Risk' if probability > 0.5 else 'Low Risk'
-                confidence = probability if probability > 0.5 else (1 - probability)
-            else:
-                pred_class = int(models['heart_risk'].predict(features_scaled)[0])
-                prediction = 'High Risk' if pred_class == 1 else 'Low Risk'
-                probability = 0.85 if pred_class == 1 else 0.15
-                confidence = 0.85
-
-            confidence = max(confidence, REAL_MODEL_FLOOR)
+            pred_class = int(models['heart_risk'].predict(features_scaled)[0])
+            prediction = 'High Risk' if pred_class == 1 else 'Low Risk'
+            probability = 0.85 if pred_class == 1 else 0.15
+            confidence = 0.85
 
         # Risk level label
         if probability > 0.65:
@@ -1625,7 +2075,6 @@ def predict_heart():
 
         return jsonify({
             'success': True,
-            'demo_mode': is_demo,
             'prediction': prediction,
             'risk_level': risk_level,
             'probability': probability,
@@ -1641,7 +2090,7 @@ def predict_heart():
 #       IMAGE ANALYSIS ENDPOINTS - FIXED
 # ============================================================
 
-def build_image_response(condition_type, class_info, confidence, all_predictions=None, demo_mode=False, note=None):
+def build_image_response(condition_type, class_info, confidence, all_predictions=None, note=None):
     """
     Build a standardized response for image analysis endpoints.
     This ensures EVERY response has the exact same structure the frontend expects.
@@ -1663,7 +2112,6 @@ def build_image_response(condition_type, class_info, confidence, all_predictions
 
     response = {
         'success': True,
-        'demo_mode': demo_mode,
         'prediction': {
             'name': class_info.get('name', 'Unknown'),
             'code': class_info.get('code', 'unknown'),
@@ -1686,11 +2134,8 @@ def build_image_response(condition_type, class_info, confidence, all_predictions
     if all_predictions:
         response['all_predictions'] = all_predictions
 
-    # Add note
     if note:
         response['note'] = note
-    elif demo_mode:
-        response['note'] = 'DEMO MODE: No trained model found. Train the model for accurate predictions.'
 
     return response
 
@@ -1716,7 +2161,8 @@ def analyze_skin():
         image = Image.open(io.BytesIO(file.read()))
         processed_image = preprocess_image_for_skin(image, target_size=(224, 224))
 
-        validation = validate_image_type(processed_image, 'skin')
+        raw_for_validation = get_raw_array_for_validation(image, target_size=(224, 224), mode='RGB')
+        validation = validate_image_type(raw_for_validation, 'skin')
         if not validation['is_valid']:
             return jsonify({
                 'success': False, 'error': 'Invalid image type', 'validation_error': True,
@@ -1726,11 +2172,24 @@ def analyze_skin():
             }), 400
 
         if 'skin_cancer' not in models:
-            # Demo mode with image analysis
-            return jsonify(get_demo_skin_prediction(processed_image))
+            return jsonify({
+                'success': False,
+                'error': 'Skin cancer model is not loaded. Please train the model first.',
+                'hint': 'Run: python ml_model/image_classification.py'
+            }), 503
 
-        # Real prediction
-        predictions = models['skin_cancer'].predict(processed_image, verbose=0)[0]
+        # Real prediction - using Test-Time Augmentation (TTA) to improve accuracy
+        orig = processed_image
+        h_flip = np.flip(processed_image, axis=2)
+        v_flip = np.flip(processed_image, axis=1)
+        hv_flip = np.flip(h_flip, axis=1)
+        
+        p_orig = models['skin_cancer'](orig, training=False).numpy()[0]
+        p_h = models['skin_cancer'](h_flip, training=False).numpy()[0]
+        p_v = models['skin_cancer'](v_flip, training=False).numpy()[0]
+        p_hv = models['skin_cancer'](hv_flip, training=False).numpy()[0]
+        
+        predictions = (p_orig + p_h + p_v + p_hv) / 4.0
         predicted_idx = int(np.argmax(predictions))
         confidence = float(predictions[predicted_idx])
         class_info = SKIN_CANCER_CLASSES.get(predicted_idx, SKIN_CANCER_CLASSES[5])
@@ -1752,7 +2211,6 @@ def analyze_skin():
         return jsonify(build_image_response(
             'skin', class_info, confidence,
             all_predictions=all_predictions[:5],
-            demo_mode=False,
             note='AI analysis is preliminary. Always consult a dermatologist for definitive diagnosis.'
         ))
 
@@ -1782,7 +2240,8 @@ def analyze_xray():
         image = Image.open(io.BytesIO(file.read()))
         processed_image = preprocess_image_for_xray(image, target_size=(224, 224))
 
-        validation = validate_image_type(processed_image, 'xray')
+        raw_for_validation = get_raw_array_for_validation(image, target_size=(224, 224), mode='L')
+        validation = validate_image_type(raw_for_validation, 'xray')
         if not validation['is_valid']:
             return jsonify({
                 'success': False, 'error': 'Invalid image type', 'validation_error': True,
@@ -1792,10 +2251,14 @@ def analyze_xray():
             }), 400
 
         if 'pneumonia' not in models:
-            return jsonify(get_demo_pneumonia_prediction(processed_image))
+            return jsonify({
+                'success': False,
+                'error': 'Pneumonia model is not loaded. Please train the model first.',
+                'hint': 'Run: python ml_model/image_classification.py'
+            }), 503
 
-        # Real prediction - Handle both output formats
-        predictions = models['pneumonia'].predict(processed_image, verbose=0)[0]
+        # Real prediction - Handle both output formats (optimized for speed)
+        predictions = models['pneumonia'](processed_image, training=False).numpy()[0]
 
         if len(predictions) == 2:
             predicted_idx = int(np.argmax(predictions))
@@ -1804,8 +2267,11 @@ def analyze_xray():
             pneumonia_conf = float(predictions[1])
         elif len(predictions) == 1 or not hasattr(predictions, '__len__'):
             prob = float(predictions[0]) if hasattr(predictions, '__len__') else float(predictions)
-            predicted_idx = 1 if prob > 0.5 else 0
-            confidence = prob if prob > 0.5 else (1 - prob)
+            # Use calibrated threshold from config if available (set after retraining with focal loss).
+            # Falls back to 0.35 which compensates for the class-collapse bias toward Normal.
+            PNEUMONIA_THRESHOLD = models.get('pneumonia_threshold', 0.35)
+            predicted_idx = 1 if prob >= PNEUMONIA_THRESHOLD else 0
+            confidence = prob if predicted_idx == 1 else (1 - prob)
             normal_conf = 1.0 - prob
             pneumonia_conf = prob
         else:
@@ -1829,7 +2295,6 @@ def analyze_xray():
         return jsonify(build_image_response(
             'pneumonia', class_info, confidence,
             all_predictions=all_predictions,
-            demo_mode=False,
             note='AI analysis is preliminary. Always consult a physician for definitive diagnosis.'
         ))
 
@@ -1859,7 +2324,8 @@ def analyze_breast():
         image = Image.open(io.BytesIO(file.read()))
         processed_image = preprocess_image_for_breast(image, target_size=(224, 224))
 
-        validation = validate_image_type(processed_image, 'breast')
+        raw_for_validation = get_raw_array_for_validation(image, target_size=(224, 224), mode='L')
+        validation = validate_image_type(raw_for_validation, 'breast')
         if not validation['is_valid']:
             return jsonify({
                 'success': False, 'error': 'Invalid image type', 'validation_error': True,
@@ -1869,37 +2335,13 @@ def analyze_breast():
             }), 400
 
         if 'breast_cancer' not in models:
-            demo_idx = np.random.choice([0, 1, 2], p=[0.4, 0.4, 0.2])
-            class_info = BREAST_CANCER_CLASSES_3[demo_idx]
-            demo_confidence = float(np.random.uniform(0.70, 0.90))
+            return jsonify({
+                'success': False,
+                'error': 'Breast cancer model is not loaded. Please train the model first.',
+                'hint': 'Run: python ml_model/train_breast_cancer_model.py'
+            }), 503
 
-            all_preds = []
-            remaining = 1.0 - demo_confidence
-            other_indices = [i for i in range(3) if i != demo_idx]
-            for rank, idx in enumerate(other_indices):
-                info = BREAST_CANCER_CLASSES_3[idx]
-                conf = remaining * (0.6 if rank == 0 else 0.4)
-                all_preds.append({
-                    'name': info['name'], 'code': info['code'], 'type': info.get('type', ''),
-                    'birads': info.get('birads', ''),
-                    'confidence': float(conf), 'confidence_percent': f"{float(conf) * 100:.1f}%",
-                    'severity': info['severity']
-                })
-            all_preds.append({
-                'name': class_info['name'], 'code': class_info['code'],
-                'type': class_info.get('type', ''), 'birads': class_info.get('birads', ''),
-                'confidence': float(demo_confidence),
-                'confidence_percent': f"{float(demo_confidence) * 100:.1f}%",
-                'severity': class_info['severity']
-            })
-            all_preds.sort(key=lambda x: x['confidence'], reverse=True)
-
-            return jsonify(build_image_response(
-                'breast', class_info, demo_confidence,
-                all_predictions=all_preds, demo_mode=True
-            ))
-
-        predictions = models['breast_cancer'].predict(processed_image, verbose=0)[0]
+        predictions = models['breast_cancer'](processed_image, training=False).numpy()[0]
         num_classes = len(predictions)
         class_defs = BREAST_CANCER_CLASSES_3 if num_classes == 3 else BREAST_CANCER_CLASSES_6
         predicted_idx = int(np.argmax(predictions))
@@ -1921,7 +2363,6 @@ def analyze_breast():
         return jsonify(build_image_response(
             'breast', class_info, confidence,
             all_predictions=all_predictions,
-            demo_mode=False,
             note='AI analysis is preliminary. Always consult a radiologist.'
         ))
 
@@ -1930,7 +2371,7 @@ def analyze_breast():
         return jsonify({'success': False, 'error': str(e)}), 500
 
 
-def signal_file_to_image(file_path, file_ext, img_size=(224, 224)):
+def signal_file_to_image(file_path, file_ext, img_size=(256, 256)):
     """
     Convert ECG signal file (.dat, .hea, .csv) to grayscale image
     for the heart model to analyze.
@@ -2158,7 +2599,7 @@ def analyze_heart():
 
             # Convert signal to image
             processed_image, error_msg = signal_file_to_image(
-                temp_path, file_ext, img_size=(224, 224)
+                temp_path, file_ext, img_size=(256, 256)
             )
 
             # Cleanup temp files
@@ -2198,10 +2639,11 @@ def analyze_heart():
                 return jsonify({'success': False, 'error': 'Invalid file'}), 400
 
             image = Image.open(io.BytesIO(image_file.read()))
-            processed_image = preprocess_image_for_heart(image, target_size=(224, 224))
+            processed_image = preprocess_image_for_heart(image, target_size=(256, 256))
 
             # Validate image type
-            validation = validate_image_type(processed_image, 'heart')
+            raw_for_validation = get_raw_array_for_validation(image, target_size=(256, 256), mode='L')
+            validation = validate_image_type(raw_for_validation, 'heart')
             if not validation['is_valid']:
                 return jsonify({
                     'success': False, 'error': 'Invalid image type',
@@ -2219,40 +2661,14 @@ def analyze_heart():
 
         # ============ RUN PREDICTION ============
         if 'heart_image' not in models:
-            # Demo mode
-            demo_idx = np.random.choice([0, 2, 4], p=[0.5, 0.3, 0.2])
-            class_info = HEART_CONDITIONS[demo_idx]
-            demo_confidence = float(np.random.uniform(0.70, 0.92))
+            return jsonify({
+                'success': False,
+                'error': 'Heart image model is not loaded. Please train the model first.',
+                'hint': 'Run: python ml_model/train_heart_image_model.py'
+            }), 503
 
-            all_preds = []
-            remaining = 1.0 - demo_confidence
-            other_indices = [i for i in range(5) if i != demo_idx]
-            other_probs = np.random.dirichlet(np.ones(len(other_indices))) * remaining
-            for rank, idx in enumerate(other_indices):
-                info = HEART_CONDITIONS[idx]
-                all_preds.append({
-                    'name': info['name'], 'code': info['code'], 'type': '',
-                    'confidence': float(other_probs[rank]),
-                    'confidence_percent': f"{float(other_probs[rank]) * 100:.1f}%",
-                    'severity': info['severity']
-                })
-            all_preds.append({
-                'name': class_info['name'], 'code': class_info['code'], 'type': '',
-                'confidence': float(demo_confidence),
-                'confidence_percent': f"{float(demo_confidence) * 100:.1f}%",
-                'severity': class_info['severity']
-            })
-            all_preds.sort(key=lambda x: x['confidence'], reverse=True)
-
-            result = build_image_response(
-                'heart', class_info, demo_confidence,
-                all_predictions=all_preds[:5], demo_mode=True
-            )
-            result['signal_processed'] = signal_processed
-            return jsonify(result)
-
-        # Real model prediction
-        predictions = models['heart_image'].predict(processed_image, verbose=0)[0]
+        # Real model prediction (optimized for speed)
+        predictions = models['heart_image'](processed_image, training=False).numpy()[0]
         predicted_idx = int(np.argmax(predictions))
         confidence = float(predictions[predicted_idx])
         class_info = HEART_CONDITIONS.get(predicted_idx, HEART_CONDITIONS[0])
@@ -2275,7 +2691,7 @@ def analyze_heart():
         result = build_image_response(
             'heart', class_info, confidence,
             all_predictions=all_predictions,
-            demo_mode=False, note=note
+            note=note
         )
         result['signal_processed'] = signal_processed
         return jsonify(result)
@@ -2366,9 +2782,9 @@ def debug_image_stats():
 
 if __name__ == '__main__':
     print("\n" + "=" * 60)
-    print("🏥 MediDiagnose-AI Backend Server v4.1 (FIXED)")
+    print("MediDiagnose-AI Backend Server")
     print("=" * 60)
-    print("\n📋 Endpoints:")
+    print("\nEndpoints:")
     print("  GET  /                  - API info")
     print("  GET  /health            - Health check")
     print("  GET  /symptoms          - Symptoms list")
@@ -2383,7 +2799,7 @@ if __name__ == '__main__':
 
     load_models()
 
-    print(f"\n🚀 Server starting on http://localhost:5000")
+    print(f"\nServer starting on http://localhost:5000")
     print("=" * 60 + "\n")
 
     app.run(debug=True, host='0.0.0.0', port=5000, use_reloader=False, threaded=True)

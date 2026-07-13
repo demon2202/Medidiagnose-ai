@@ -3,13 +3,13 @@ DISEASE PREDICTION MODEL — TRAINING REPORT
 Compatible with: server.py v4.1 /predict-disease
 ======================================================================
 
-Accuracy:              1.0000  (100.00%)
-F1 Score (weighted):   1.0000
-Cross-Val Accuracy:    1.0000 (±0.0000)
-Training samples:      4182
-Test samples:          738
-Number of symptoms:    131
-Number of diseases:    41
+Accuracy:              0.8077  (80.77%)
+F1 Score (weighted):   0.8129
+Cross-Val Accuracy:    0.9494 (±0.0146)
+Training samples:      1767
+Test samples:          442
+Number of symptoms:    133
+Number of diseases:    42
 
 DISEASES:
 
@@ -41,6 +41,7 @@ DISEASES:
   - Hypoglycemia
   - Hypothyroidism
   - Impetigo
+  - Influenza
   - Jaundice
   - Malaria
   - Migraine
@@ -60,61 +61,62 @@ CLASSIFICATION REPORT
 ----------------------------------------------------------------------
                                precision    recall  f1-score   support
 
-                         AIDS       1.00      1.00      1.00        18
-                         Acne       1.00      1.00      1.00        18
-          Alcoholic hepatitis       1.00      1.00      1.00        18
-                      Allergy       1.00      1.00      1.00        18
-                    Arthritis       1.00      1.00      1.00        18
-             Bronchial Asthma       1.00      1.00      1.00        18
-         Cervical spondylosis       1.00      1.00      1.00        18
-                  Chicken pox       1.00      1.00      1.00        18
-          Chronic cholestasis       1.00      1.00      1.00        18
-                  Common Cold       1.00      1.00      1.00        18
-                       Dengue       1.00      1.00      1.00        18
-                     Diabetes       1.00      1.00      1.00        18
- Dimorphic hemmorhoids(piles)       1.00      1.00      1.00        18
-                Drug Reaction       1.00      1.00      1.00        18
-             Fungal infection       1.00      1.00      1.00        18
-                         GERD       1.00      1.00      1.00        18
-              Gastroenteritis       1.00      1.00      1.00        18
-                 Heart attack       1.00      1.00      1.00        18
-                  Hepatitis A       1.00      1.00      1.00        18
-                  Hepatitis B       1.00      1.00      1.00        18
-                  Hepatitis C       1.00      1.00      1.00        18
-                  Hepatitis D       1.00      1.00      1.00        18
-                  Hepatitis E       1.00      1.00      1.00        18
-                 Hypertension       1.00      1.00      1.00        18
-              Hyperthyroidism       1.00      1.00      1.00        18
-                 Hypoglycemia       1.00      1.00      1.00        18
-               Hypothyroidism       1.00      1.00      1.00        18
-                     Impetigo       1.00      1.00      1.00        18
-                     Jaundice       1.00      1.00      1.00        18
-                      Malaria       1.00      1.00      1.00        18
-                     Migraine       1.00      1.00      1.00        18
-               Osteoarthritis       1.00      1.00      1.00        18
- Paralysis (brain hemorrhage)       1.00      1.00      1.00        18
-Paroxysmal Positional Vertigo       1.00      1.00      1.00        18
-         Peptic ulcer disease       1.00      1.00      1.00        18
-                    Pneumonia       1.00      1.00      1.00        18
-                    Psoriasis       1.00      1.00      1.00        18
-                 Tuberculosis       1.00      1.00      1.00        18
-                      Typhoid       1.00      1.00      1.00        18
-      Urinary tract infection       1.00      1.00      1.00        18
-               Varicose veins       1.00      1.00      1.00        18
+                         AIDS       1.00      1.00      1.00         3
+                         Acne       1.00      1.00      1.00         3
+          Alcoholic hepatitis       1.00      0.83      0.91        12
+                      Allergy       0.50      0.33      0.40         3
+                    Arthritis       1.00      0.75      0.86         8
+             Bronchial Asthma       0.56      0.64      0.60        14
+         Cervical spondylosis       1.00      1.00      1.00         5
+                  Chicken pox       0.86      0.92      0.89        13
+          Chronic cholestasis       0.46      0.60      0.52        10
+                  Common Cold       0.93      0.87      0.90        15
+                       Dengue       0.93      0.88      0.90        16
+                     Diabetes       1.00      0.93      0.96        14
+ Dimorphic hemmorhoids(piles)       1.00      1.00      1.00         6
+                Drug Reaction       1.00      1.00      1.00         6
+             Fungal infection       1.00      0.50      0.67         2
+                         GERD       1.00      0.82      0.90        11
+              Gastroenteritis       0.50      0.85      0.63        13
+                 Heart attack       0.60      0.67      0.63         9
+                  Hepatitis A       0.62      0.57      0.59        14
+                  Hepatitis B       0.94      0.94      0.94        16
+                  Hepatitis C       0.60      0.60      0.60        10
+                  Hepatitis D       0.61      0.79      0.69        14
+                  Hepatitis E       0.70      0.47      0.56        15
+                 Hypertension       1.00      1.00      1.00         6
+              Hyperthyroidism       0.88      1.00      0.94        15
+                 Hypoglycemia       1.00      0.75      0.86        12
+               Hypothyroidism       1.00      0.93      0.97        15
+                     Impetigo       1.00      0.67      0.80         6
+                    Influenza       0.70      0.84      0.76        25
+                     Jaundice       0.59      0.71      0.65        14
+                      Malaria       1.00      0.73      0.84        11
+                     Migraine       1.00      1.00      1.00        14
+               Osteoarthritis       0.88      1.00      0.93         7
+ Paralysis (brain hemorrhage)       1.00      0.33      0.50         3
+Paroxysmal Positional Vertigo       1.00      1.00      1.00         4
+         Peptic ulcer disease       0.89      0.73      0.80        11
+                    Pneumonia       0.42      0.57      0.48        14
+                    Psoriasis       1.00      0.88      0.93         8
+                 Tuberculosis       1.00      0.88      0.93        16
+                      Typhoid       1.00      0.88      0.93        16
+      Urinary tract infection       1.00      0.67      0.80         3
+               Varicose veins       1.00      1.00      1.00        10
 
-                     accuracy                           1.00       738
-                    macro avg       1.00      1.00      1.00       738
-                 weighted avg       1.00      1.00      1.00       738
+                     accuracy                           0.81       442
+                    macro avg       0.86      0.80      0.82       442
+                 weighted avg       0.84      0.81      0.81       442
 
 
 ----------------------------------------------------------------------
 FILES FOR SERVER.PY
 ----------------------------------------------------------------------
-  disease_model.joblib   → models['disease']
-  label_encoder.joblib   → models['label_encoder']
-  symptom_list.json      → models['symptom_list']
-  disease_info.json      → disease descriptions
-  model_config.json      → metadata
+  disease_model.joblib   -> models['disease']
+  label_encoder.joblib   -> models['label_encoder']
+  symptom_list.json      -> models['symptom_list']
+  disease_info.json      -> disease descriptions
+  model_config.json      -> metadata
 
 server.py MODEL_PATHS expects these in: ml_model/
 ======================================================================

@@ -47,13 +47,13 @@ function Sidebar() {
 
       <aside className={`
         fixed md:static inset-y-0 left-0 z-50
-        w-72 bg-white dark:bg-gray-800 border-r border-gray-200 dark:border-gray-700
+        w-72 bg-white dark:bg-zinc-950/60 border-r border-zinc-200 dark:border-zinc-900 backdrop-blur-md
         transform transition-transform duration-300 ease-in-out
         ${sidebarOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0'}
         flex flex-col
       `}>
        
-        <div className="flex items-center justify-between p-5 border-b border-gray-200 dark:border-gray-700">
+        <div className="flex items-center justify-between p-5 border-b border-zinc-200 dark:border-zinc-900">
           <div className="flex items-center gap-3">
             <div className="w-11 h-11 bg-gradient-to-br from-blue-500 to-blue-700 rounded-xl flex items-center justify-center shadow-lg shadow-blue-500/20">
               <Activity className="text-white" size={22} />

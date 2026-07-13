@@ -26,6 +26,7 @@ import {
 } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import { config } from '../config/config';
+import Disclaimer from '../components/common/Disclaimer';
 
 function ImageAnalysis() {
   const { addToHistory, isLoading, setIsLoading, showNotification } = useApp();
@@ -516,13 +517,7 @@ function ImageAnalysis() {
         <p className="page-subtitle">Upload medical images or ECG signal files for AI-powered disease detection.</p>
       </div>
 
-      <div className="alert-warning">
-        <AlertTriangle size={20} className="flex-shrink-0 mt-0.5" />
-        <div>
-          <p className="font-semibold">Important Medical Disclaimer</p>
-          <p className="text-sm mt-1">This AI tool provides preliminary analysis only. Always consult qualified healthcare professionals.</p>
-        </div>
-      </div>
+      <Disclaimer message="This AI tool provides preliminary medical image and signal analysis for informational purposes only. It is not a substitute for professional clinical judgment, diagnosis, or treatment. Always consult qualified healthcare professionals before making medical decisions." />
 
       {/* Analysis Type Selection */}
       <div className="card">
@@ -696,7 +691,6 @@ function ImageAnalysis() {
                 {getSeverityIcon(result.severity)}
                 <div className="flex-1">
                   <h3 className="font-semibold text-gray-900 dark:text-white text-lg">Analysis Complete</h3>
-                  {result.demo_mode && <span className="text-xs text-amber-600 dark:text-amber-400 bg-amber-100 dark:bg-amber-900/30 px-2 py-0.5 rounded-full font-medium">⚠️ Demo Mode</span>}
                   {result.signal_processed && <span className="text-xs text-green-600 dark:text-green-400 bg-green-100 dark:bg-green-900/30 px-2 py-0.5 rounded-full font-medium ml-1">📊 Signal Analysis</span>}
                 </div>
               </div>

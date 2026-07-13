@@ -1,34 +1,34 @@
 {
   "Random Forest": {
-    "accuracy": 1.0,
-    "roc_auc": 1.0,
-    "f1_score": 1.0,
-    "mcc": 1.0
+    "accuracy": 0.7704918032786885,
+    "roc_auc": 0.8722943722943723,
+    "f1_score": 0.7878787878787878,
+    "mcc": 0.5378787878787878
   },
   "Gradient Boosting": {
-    "accuracy": 1.0,
-    "roc_auc": 1.0,
-    "f1_score": 1.0,
-    "mcc": 1.0
+    "accuracy": 0.7377049180327869,
+    "roc_auc": 0.8506493506493507,
+    "f1_score": 0.7575757575757576,
+    "mcc": 0.47186147186147187
   },
   "Logistic Regression": {
-    "accuracy": 0.8146341463414634,
-    "roc_auc": 0.9260952380952382,
-    "f1_score": 0.8362068965517241,
-    "mcc": 0.642240203819111
+    "accuracy": 0.7704918032786885,
+    "roc_auc": 0.880952380952381,
+    "f1_score": 0.7878787878787878,
+    "mcc": 0.5378787878787878
   },
   "Ensemble": {
-    "accuracy": 1.0,
-    "roc_auc": 1.0,
-    "f1_score": 1.0,
-    "mcc": 1.0
+    "accuracy": 0.7540983606557377,
+    "roc_auc": 0.8647186147186148,
+    "f1_score": 0.7761194029850746,
+    "mcc": 0.5038028898850895
   },
   "Calibrated Ensemble": {
-    "accuracy": 1.0,
-    "roc_auc": 1.0,
-    "f1_score": 1.0,
-    "mcc": 1.0
+    "accuracy": 0.7540983606557377,
+    "roc_auc": 0.8658008658008658,
+    "f1_score": 0.7761194029850746,
+    "mcc": 0.5038028898850895
   },
-  "best_model": "Random Forest",
-  "cv_mean_auc": 0.9986904761904762
+  "best_model": "Logistic Regression",
+  "cv_mean_auc": 0.9163429163429164
 }

@@ -217,15 +217,15 @@ function History() {
       <div className="card">
         <div className="flex flex-wrap items-center justify-between gap-4">
           <div className="flex items-center gap-2">
-            <Filter size={18} className="text-gray-400" />
-            <span className="text-sm font-medium text-gray-700 dark:text-gray-300">Filter:</span>
+            <Filter size={18} className="text-zinc-400" />
+            <span className="text-sm font-medium text-zinc-700 dark:text-zinc-300">Filter:</span>
             <div className="flex gap-2">
               <button
                 onClick={() => setFilter('all')}
                 className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
                   filter === 'all'
-                    ? 'bg-blue-500 text-white'
-                    : 'bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700'
+                    ? 'bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-950 shadow-sm'
+                    : 'bg-zinc-100 dark:bg-zinc-850 text-zinc-600 dark:text-zinc-400 hover:bg-zinc-200 dark:hover:bg-zinc-805'
                 }`}
               >
                 All ({history.length})
@@ -234,8 +234,8 @@ function History() {
                 onClick={() => setFilter('image')}
                 className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
                   filter === 'image'
-                    ? 'bg-blue-500 text-white'
-                    : 'bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700'
+                    ? 'bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-950 shadow-sm'
+                    : 'bg-zinc-100 dark:bg-zinc-850 text-zinc-600 dark:text-zinc-400 hover:bg-zinc-200 dark:hover:bg-zinc-805'
                 }`}
               >
                 Images ({history.filter(h => h.type?.includes('image')).length})
@@ -244,8 +244,8 @@ function History() {
                 onClick={() => setFilter('symptom')}
                 className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
                   filter === 'symptom'
-                    ? 'bg-blue-500 text-white'
-                    : 'bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700'
+                    ? 'bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-950 shadow-sm'
+                    : 'bg-zinc-100 dark:bg-zinc-850 text-zinc-600 dark:text-zinc-400 hover:bg-zinc-200 dark:hover:bg-zinc-805'
                 }`}
               >
                 Symptoms ({history.filter(h => h.type?.includes('symptom') || h.type?.includes('disease')).length})

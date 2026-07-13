@@ -116,7 +116,6 @@ export const symptoms = [
   { id: 'stomach_bleeding', label: 'Stomach Bleeding', category: 'Digestive' },
   { id: 'distention_of_abdomen', label: 'Distention of Abdomen', category: 'Digestive' },
   { id: 'history_of_alcohol_consumption', label: 'History of Alcohol Consumption', category: 'Behavioral' },
-  { id: 'fluid_overload_1', label: 'Fluid Overload', category: 'Circulatory' },
   { id: 'blood_in_sputum', label: 'Blood in Sputum', category: 'Respiratory' },
   { id: 'prominent_veins_on_calf', label: 'Prominent Veins on Calf', category: 'Circulatory' },
   { id: 'palpitations', label: 'Palpitations', category: 'Cardiovascular' },

@@ -7,9 +7,9 @@
     3,
     1
   ],
-  "n_features_in": 131,
-  "n_symptoms": 131,
-  "n_diseases": 41,
+  "n_features_in": 133,
+  "n_symptoms": 133,
+  "n_diseases": 42,
   "diseases": [
     "AIDS",
     "Acne",
@@ -39,6 +39,7 @@
     "Hypoglycemia",
     "Hypothyroidism",
     "Impetigo",
+    "Influenza",
     "Jaundice",
     "Malaria",
     "Migraine",
@@ -53,12 +54,12 @@
     "Urinary tract infection",
     "Varicose veins"
   ],
-  "accuracy": 1.0,
-  "f1_weighted": 1.0,
-  "cv_accuracy_mean": 1.0,
-  "cv_accuracy_std": 0.0,
-  "train_samples": 4182,
-  "test_samples": 738,
+  "accuracy": 0.8076923076923077,
+  "f1_weighted": 0.812901952514477,
+  "cv_accuracy_mean": 0.9494047619047619,
+  "cv_accuracy_std": 0.007299861769883782,
+  "train_samples": 1767,
+  "test_samples": 442,
   "feature_selection_used": false,
   "compatible_with": "server.py v4.1 /predict-disease endpoint"
 }

@@ -61,5 +61,5 @@
   "model_type": "Logistic Regression",
   "calibrated": false,
   "note": "StandardScaler, 10 raw features, calibrated probabilities",
-  "training_date": "2026-06-14T21:33:19.896603"
+  "training_date": "2026-07-12T01:51:14.447819"
 }

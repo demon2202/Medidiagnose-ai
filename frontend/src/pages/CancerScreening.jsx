@@ -13,6 +13,7 @@ import {
 } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import { config } from '../config/config';
+import Disclaimer from '../components/common/Disclaimer';
 
 function CancerScreening() {
   const { addToHistory, isLoading, setIsLoading, showNotification } = useApp();
@@ -37,37 +38,7 @@ function CancerScreening() {
     setError(null);
   };
 
-  const loadSampleData = (type) => {
-    if (type === 'benign') {
-      setFormData({
-        radius_mean: '12.5',
-        texture_mean: '17.2',
-        perimeter_mean: '78.5',
-        area_mean: '450',
-        smoothness_mean: '0.09',
-        compactness_mean: '0.07',
-        concavity_mean: '0.04',
-        concave_points_mean: '0.02',
-        symmetry_mean: '0.17',
-        fractal_dimension_mean: '0.06'
-      });
-    } else {
-      setFormData({
-        radius_mean: '18.5',
-        texture_mean: '22.0',
-        perimeter_mean: '120.0',
-        area_mean: '1050',
-        smoothness_mean: '0.11',
-        compactness_mean: '0.18',
-        concavity_mean: '0.20',
-        concave_points_mean: '0.10',
-        symmetry_mean: '0.21',
-        fractal_dimension_mean: '0.07'
-      });
-    }
-    setResult(null);
-    setError(null);
-  };
+
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -145,44 +116,16 @@ function CancerScreening() {
         </p>
       </div>
 
-      <div className="alert-warning">
-        <AlertTriangle size={20} className="flex-shrink-0 mt-0.5" />
-        <div>
-          <p className="font-medium">Important Medical Disclaimer</p>
-          <p className="text-sm mt-1">
-            This screening tool is for educational purposes only. It analyzes tumor characteristics 
-            typically obtained from fine needle aspirate (FNA) tests. Always consult an oncologist 
-            for proper diagnosis and treatment planning.
-          </p>
-        </div>
-      </div>
+      <Disclaimer message="This screening tool is for educational purposes only. It analyzes tumor characteristics typically obtained from fine needle aspirate (FNA) tests. Always consult an oncologist for proper diagnosis and treatment planning." />
 
       <div className="grid lg:grid-cols-3 gap-6">
         {/* Main Form */}
         <div className="lg:col-span-2">
           <div className="card">
-            <div className="flex items-center justify-between mb-6">
-              <h3 className="text-lg font-semibold text-gray-900 dark:text-white flex items-center gap-2">
-                <Activity size={20} className="text-purple-600" />
-                Tumor Characteristics
-              </h3>
-              <div className="flex gap-2">
-                <button
-                  type="button"
-                  onClick={() => loadSampleData('benign')}
-                  className="btn-sm btn-ghost text-emerald-600"
-                >
-                  Load Benign Sample
-                </button>
-                <button
-                  type="button"
-                  onClick={() => loadSampleData('malignant')}
-                  className="btn-sm btn-ghost text-red-600"
-                >
-                  Load Malignant Sample
-                </button>
-              </div>
-            </div>
+            <h3 className="text-lg font-semibold text-gray-900 dark:text-white flex items-center gap-2 mb-6">
+              <Activity size={20} className="text-purple-600" />
+              Tumor Characteristics
+            </h3>
 
             <form onSubmit={handleSubmit} className="space-y-6">
               <div className="grid md:grid-cols-2 gap-4">

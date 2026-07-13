@@ -464,6 +464,50 @@ export function AppProvider({ children }) {
   }, [user, showNotification]);
 
   // ============================================================
+  //                    AUTH - RESET PASSWORD
+  // ============================================================
+
+  const resetPassword = useCallback(async (email, newPassword = null) => {
+    setIsLoading(true);
+    try {
+      await new Promise(resolve => setTimeout(resolve, 1000));
+      const registeredUsers = getRegisteredUsers();
+      const userIndex = registeredUsers.findIndex(
+        u => u.email.toLowerCase() === email.toLowerCase()
+      );
+      if (userIndex === -1) {
+        throw new Error('No account found with this email.');
+      }
+
+      if (newPassword) {
+        if (newPassword.length < 8) {
+          throw new Error('Password must be at least 8 characters');
+        }
+        if (!/\d/.test(newPassword)) {
+          throw new Error('Password must contain at least one number');
+        }
+        if (!/[A-Z]/.test(newPassword)) {
+          throw new Error('Password must contain at least one uppercase letter');
+        }
+        
+        const passwordHash = await bcrypt.hash(newPassword, 10);
+        registeredUsers[userIndex].passwordHash = passwordHash;
+        saveRegisteredUsers(registeredUsers);
+        showNotification('Password reset successfully', 'success');
+        return { success: true };
+      }
+
+      showNotification('Identity verified. Please set your new password.', 'success');
+      return { success: true, verified: true };
+    } catch (error) {
+      showNotification(error.message || 'Failed to reset password', 'error');
+      return { success: false, error: error.message };
+    } finally {
+      setIsLoading(false);
+    }
+  }, [showNotification]);
+
+  // ============================================================
   //                    HISTORY
   // ============================================================
 
@@ -538,6 +582,7 @@ export function AppProvider({ children }) {
     signUp,
     signOut,
     changePassword,
+    resetPassword,
     updateProfile,
 
     // Theme

@@ -45,7 +45,7 @@ PTBXL_DIR = os.path.join(DATASET_DIR, 'ptb-xl')
 HEART_IMAGE_MODEL_PATH = os.path.join(SCRIPT_DIR, 'heart_image_model.h5')
 HEART_CONFIG_PATH = os.path.join(SCRIPT_DIR, 'heart_image_config.json')
 
-IMG_SIZE = 224
+IMG_SIZE = 256
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -210,7 +210,7 @@ def create_heart_model(input_shape=(224, 224, 1), num_classes=5):
     )
     base_model.trainable = False  # frozen for phase 1
 
-    x = base_model(x, training=False)
+    x = base_model(x)
     x = layers.GlobalAveragePooling2D()(x)
     x = layers.Dropout(0.4)(x)
 
@@ -406,10 +406,73 @@ def load_ptbxl_dataset(sampling_rate=100, max_samples=3000, img_size=224):
     except Exception:
         metadata['scp_codes'] = metadata['scp_codes'].apply(lambda x: {})
 
-    # Limit samples
-    if max_samples and len(metadata) > max_samples:
-        metadata = metadata.sample(n=max_samples, random_state=42)
-        print(f"  Limited to {max_samples} samples")
+    # Pre-filter metadata classes to balance dataset before reading files
+    print("  Pre-filtering metadata classes to balance dataset...")
+    rows_with_classes = []
+    for ecg_id, row in metadata.iterrows():
+        scp_codes = row.get('scp_codes', {})
+        primary_class = 0  # default: Normal
+        best_disease_class = None
+        best_disease_likelihood = -1
+        best_norm_class = None
+        best_norm_likelihood = -1
+        
+        if isinstance(scp_codes, dict):
+            for code, likelihood in scp_codes.items():
+                cu = str(code).upper()
+                if cu in SCP_TO_CLASS:
+                    cls = SCP_TO_CLASS[cu]
+                    try:
+                        l_val = float(likelihood)
+                    except (ValueError, TypeError):
+                        l_val = 0.0
+                    
+                    if l_val >= 50.0:
+                        if cls > 0:
+                            if l_val > best_disease_likelihood:
+                                best_disease_class = cls
+                                best_disease_likelihood = l_val
+                        else:
+                            if l_val > best_norm_likelihood:
+                                best_norm_class = cls
+                                best_norm_likelihood = l_val
+                                
+        if best_disease_class is not None:
+            primary_class = best_disease_class
+        elif best_norm_class is not None:
+            primary_class = best_norm_class
+            
+        rows_with_classes.append((ecg_id, row, primary_class))
+
+    # Group rows by class
+    by_class = {i: [] for i in range(5)}
+    for ecg_id, row, cls in rows_with_classes:
+        by_class[cls].append((ecg_id, row))
+
+    # Cap NORM class (class 0) at 2000
+    import random
+    random.seed(42)
+    norm_samples = by_class[0]
+    if len(norm_samples) > 2000:
+        random.shuffle(norm_samples)
+        norm_samples = norm_samples[:2000]
+    print(f"    Class 0 (Normal): capped at {len(norm_samples)} (out of {len(by_class[0])})")
+
+    # Combine Normal with all disease samples
+    selected_metadata = [(ecg_id, row, 0) for ecg_id, row in norm_samples]
+    for cls in [1, 2, 3, 4]:
+        disease_samples = [(ecg_id, row, cls) for ecg_id, row in by_class[cls]]
+        selected_metadata.extend(disease_samples)
+        print(f"    Class {cls} ({CLASS_NAMES[cls]}): kept all {len(by_class[cls])} samples")
+
+    # Limit to max_samples if specified
+    if max_samples and len(selected_metadata) > max_samples:
+        random.shuffle(selected_metadata)
+        selected_metadata = selected_metadata[:max_samples]
+        print(f"  Subset limited to {len(selected_metadata)} total samples")
+    else:
+        random.shuffle(selected_metadata)
+        print(f"  Total subset size: {len(selected_metadata)} samples")
 
     records_folder = 'records100' if sampling_rate == 100 else 'records500'
     expected_length = 1000 if sampling_rate == 100 else 5000
@@ -420,14 +483,14 @@ def load_ptbxl_dataset(sampling_rate=100, max_samples=3000, img_size=224):
         return None
 
     print(f"  Records folder: {records_folder}")
-    print(f"  Converting {len(metadata)} signals to images...")
+    print(f"  Converting {len(selected_metadata)} signals to images...")
 
     X_images, y_labels = [], []
     loaded, errors = 0, 0
 
-    for idx, (ecg_id, row) in enumerate(metadata.iterrows()):
+    for idx, (ecg_id, row, primary_class) in enumerate(selected_metadata):
         if idx % 500 == 0 and idx > 0:
-            print(f"    Processed {idx}/{len(metadata)} "
+            print(f"    Processed {idx}/{len(selected_metadata)} "
                   f"({loaded} loaded, {errors} errors)")
         try:
             filename = row['filename_lr'] if sampling_rate == 100 \
@@ -455,17 +518,6 @@ def load_ptbxl_dataset(sampling_rate=100, max_samples=3000, img_size=224):
                     signal[:, lead] = (ld - np.mean(ld)) / std
                 else:
                     signal[:, lead] = ld - np.mean(ld)
-
-            # Determine class from SCP codes
-            scp_codes = row.get('scp_codes', {})
-            primary_class = 0
-            max_likelihood = 0
-            if isinstance(scp_codes, dict):
-                for code, likelihood in scp_codes.items():
-                    cu = str(code).upper()
-                    if cu in SCP_TO_CLASS and likelihood > max_likelihood:
-                        primary_class = SCP_TO_CLASS[cu]
-                        max_likelihood = likelihood
 
             img = signal_to_grayscale_image(signal, (img_size, img_size))
             X_images.append(img)
@@ -528,7 +580,7 @@ def train_heart_image_model():
     num_classes = 5
 
     # ── Load data ───────────────────────────────────────────────────────
-    data = load_ptbxl_dataset(sampling_rate=100, max_samples=3000,
+    data = load_ptbxl_dataset(sampling_rate=100, max_samples=8000,
                                img_size=IMG_SIZE)
 
     if data is not None:
@@ -559,7 +611,7 @@ def train_heart_image_model():
     model, base_model = create_heart_model((IMG_SIZE, IMG_SIZE, 1), num_classes)
 
     model.compile(
-        optimizer=Adam(learning_rate=0.001, clipnorm=1.0),
+        optimizer=Adam(learning_rate=0.0002, clipnorm=1.0),
         loss='categorical_crossentropy',
         metrics=['accuracy',
                  keras.metrics.Precision(name='precision'),
@@ -581,7 +633,7 @@ def train_heart_image_model():
     )
 
     # ── Phase 1: Frozen backbone ────────────────────────────────────────
-    epochs_p1 = 20
+    epochs_p1 = 30
     batch_size = 32
 
     callbacks_p1 = [
@@ -616,7 +668,7 @@ def train_heart_image_model():
         layer.trainable = False
 
     model.compile(
-        optimizer=Adam(learning_rate=1e-5),
+        optimizer=Adam(learning_rate=0.00002),
         loss='categorical_crossentropy',
         metrics=['accuracy',
                  keras.metrics.Precision(name='precision'),
@@ -635,7 +687,7 @@ def train_heart_image_model():
 
     model.fit(
         datagen.flow(X_train, y_train, batch_size=batch_size),
-        epochs=10,
+        epochs=15,
         validation_data=(X_test, y_test),
         callbacks=callbacks_p2,
         class_weight=cw_dict,

@@ -3,7 +3,7 @@ import { X, User, Mail, Save } from 'lucide-react';
 import { useApp } from '../../context/AppContext';
 
 function ProfileModal() {
-  const { user, updateUser, setProfileModalOpen } = useApp();
+  const { user, updateProfile, setProfileModalOpen } = useApp();
   const [formData, setFormData] = useState({
     name: user.name,
     email: user.email,
@@ -11,7 +11,7 @@ function ProfileModal() {
 
   const handleSubmit = (e) => {
     e.preventDefault();
-    updateUser(formData);
+    updateProfile(formData);
     setProfileModalOpen(false);
   };
 

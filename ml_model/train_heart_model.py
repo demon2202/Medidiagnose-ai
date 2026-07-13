@@ -1,16 +1,3 @@
-"""
-train_heart_model.py - PRODUCTION VERSION
-==========================================
-MediDiagnose-AI: Heart Disease Risk Prediction (tabular data)
-
-Method: Ensemble (Random Forest + Gradient Boosting + Logistic Regression)
-Input:  13 standard clinical features (matching server.py exactly)
-Output: Binary (0 = low risk, 1 = high risk) + probability
-
-NO feature engineering — uses the exact same 13 features that
-server.py sends, so there's zero chance of a feature count mismatch.
-"""
-
 import os
 import json
 import numpy as np
@@ -265,10 +252,13 @@ def train_heart_model():
     if len(available) < len(BASE_FEATURES):
         print(f"⚠  Only {len(available)}/{len(BASE_FEATURES)} features available")
 
-    X = df[available].values.astype(np.float64)
-    y = df['target'].values.astype(int)
+    # Drop duplicate records to prevent identical rows leaking into train/test splits
+    df_unique = df[available + ['target']].drop_duplicates()
+    X = df_unique[available].values.astype(np.float64)
+    y = df_unique['target'].values.astype(int)
 
-    print(f"\n  Features: {len(available)}  →  {available}")
+    print(f"\n  Deduplicated dataset: {len(df_unique)} unique records (down from {len(df)})")
+    print(f"  Features: {len(available)}  →  {available}")
     print(f"  Samples:  {len(X)}")
     print(f"  Class 0:  {(y == 0).sum()}   Class 1: {(y == 1).sum()}")
 

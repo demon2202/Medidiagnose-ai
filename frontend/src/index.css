@@ -81,44 +81,44 @@
    DARK THEME VARIABLES
    =================================== */
 .dark {
-  --bg-primary: 15 23 42;
-  --bg-secondary: 30 41 59;
-  --bg-tertiary: 51 65 85;
-  --bg-hover: 71 85 105;
+  --bg-primary: 10 10 12;
+  --bg-secondary: 18 18 21;
+  --bg-tertiary: 26 26 30;
+  --bg-hover: 39 39 42;
 
-  --text-primary: 241 245 249;
-  --text-secondary: 203 213 225;
-  --text-tertiary: 148 163 184;
-  --text-muted: 100 116 139;
+  --text-primary: 244 244 245;
+  --text-secondary: 161 161 170;
+  --text-tertiary: 113 113 122;
+  --text-muted: 82 82 91;
 
-  --border-primary: 51 65 85;
-  --border-secondary: 71 85 105;
+  --border-primary: 39 39 42;
+  --border-secondary: 63 63 70;
 
   --shadow-color: 0 0 0;
-  --shadow-opacity: 0.3;
+  --shadow-opacity: 0.5;
 
-  --card-bg: 30 41 59;
-  --card-border: 51 65 85;
+  --card-bg: 18 18 21;
+  --card-border: 39 39 42;
 
-  --input-bg: 30 41 59;
-  --input-border: 71 85 105;
+  --input-bg: 12 12 14;
+  --input-border: 39 39 42;
 
-  --sidebar-bg: 30 41 59;
-  --sidebar-border: 51 65 85;
-  --sidebar-link-hover: 51 65 85;
-  --sidebar-link-active-bg: 51 65 85;
+  --sidebar-bg: 18 18 21;
+  --sidebar-border: 39 39 42;
+  --sidebar-link-hover: 27 27 30;
+  --sidebar-link-active-bg: 27 27 30;
   --sidebar-link-active-text: 96 165 250;
 
-  --success-bg: 6 78 59;
-  --success-text: 167 243 208;
-  --success-border: 22 101 52;
+  --success-bg: 12 44 28;
+  --success-text: 74 222 128;
+  --success-border: 20 83 45;
   
-  --warning-bg: 120 53 15;
-  --warning-text: 252 211 77;
-  --warning-border: 146 64 14;
+  --warning-bg: 69 26 3;
+  --warning-text: 253 186 116;
+  --warning-border: 120 53 15;
   
-  --error-bg: 127 29 29;
-  --error-text: 252 165 165;
+  --error-bg: 69 10 10;
+  --error-text: 248 113 113;
   --error-border: 153 27 27;
   
   --info-bg: 30 58 138;

@@ -169,13 +169,19 @@ def random_augment_ultrasound(img_array):
         noise = np.random.normal(0, 0.02, img_array.shape)
         img_array = np.clip(img_array + noise, 0, 1)
 
-    # Random horizontal flip
+    # Random horizontal flip (left-right is anatomically valid - probe can be
+    # mirrored/approached from either side)
     if random.random() > 0.5:
         img_array = np.fliplr(img_array)
 
-    # Random vertical flip
-    if random.random() > 0.5:
-        img_array = np.flipud(img_array)
+    # NOTE: vertical flip and 90-degree rotations intentionally removed.
+    # Breast ultrasound has a fixed depth axis (skin/fat near top, deeper
+    # tissue below) carrying real diagnostic signal — e.g. posterior
+    # acoustic shadowing behind malignant masses only makes sense in the
+    # true orientation. Flipping vertically or rotating 90/180/270 degrees
+    # manufactures anatomically implausible images, which is especially
+    # damaging here since this function heavily populates the oversampled
+    # minority class.
 
     # Random rotation (small angle)
     if random.random() > 0.5:
@@ -316,8 +322,9 @@ def create_breast_model_transfer_grayscale(input_shape=(224, 224, 1), num_classe
     base_model.trainable = False  # Freeze initially
 
     # Get features
-    x = base_model(x)
+    x = base_model(x, training=False)
     x = layers.GlobalAveragePooling2D()(x)
+    x = layers.BatchNormalization()(x)
     x = layers.Dropout(0.4)(x)
 
     outputs = layers.Dense(num_classes, activation='softmax')(x)
@@ -427,12 +434,12 @@ def load_breast_ultrasound_data_improved(img_size=224, augment_minority=True):
         for ext in ['*.png', '*.jpg', '*.jpeg', '*.PNG', '*.JPG', '*.JPEG', '*.bmp']:
             images_paths.extend(glob.glob(os.path.join(folder_path, ext)))
 
-        # Filter out mask images (BUSI dataset has _mask files)
+        # Strict mask filter: exclude any file with 'mask' anywhere in the name
+        import re
         images_paths = [p for p in images_paths
-                        if 'mask' not in os.path.basename(p).lower()
-                        and '_mask' not in os.path.basename(p).lower()]
+                        if not re.search(r'mask', os.path.basename(p).lower())]
 
-        print(f"    Found {len(images_paths)} images (excluding masks)")
+        print(f"    Found {len(images_paths)} images (masks strictly excluded)")
 
         loaded_images = []
         for img_path in images_paths:
@@ -448,23 +455,25 @@ def load_breast_ultrasound_data_improved(img_size=224, augment_minority=True):
     for cls_name, imgs in class_data.items():
         print(f"    {cls_name}: {len(imgs)} images")
 
+    # Capture original sizes before oversampling to calculate pre-augmentation class weights
+    original_sizes = {cls_name: len(imgs) for cls_name, imgs in class_data.items()}
+
     # Handle class imbalance through oversampling with augmentation
     if augment_minority:
+        # Target: balance all classes to at least 80% of the largest class
         max_count = max(len(imgs) for imgs in class_data.values())
-        target_count = int(max_count * 1.2)  # Slightly more than max
+        target_count = int(max_count * 1.0)  # Match largest class exactly
 
-        print(f"\n  Balancing classes to ~{target_count} samples each with augmentation...")
+        print(f"\n  Balancing classes to {target_count} samples each with augmentation...")
 
         for cls_name in class_data:
             current_count = len(class_data[cls_name])
             if current_count < target_count:
-                # Oversample with augmentation
                 additional_needed = target_count - current_count
-                print(f"    Augmenting {cls_name}: {current_count} -> {target_count} (+{additional_needed})")
+                print(f"    Augmenting {cls_name}: {current_count} \u2192 {target_count} (+{additional_needed})")
 
                 original_images = class_data[cls_name].copy()
                 for i in range(additional_needed):
-                    # Pick a random original image and augment it
                     src_img = original_images[i % len(original_images)].copy()
                     aug_img = random_augment_ultrasound(src_img)
                     class_data[cls_name].append(aug_img)
@@ -505,13 +514,20 @@ def load_breast_ultrasound_data_improved(img_size=224, augment_minority=True):
     print(f"\n  Training samples: {len(X_train)}")
     print(f"  Test samples: {len(X_test)}")
 
-    # Calculate class weights
-    y_train_int = np.argmax(y_train, axis=1)
+    # Class weights must reflect the ACTUAL distribution the model trains on.
+    # The data was already balanced via oversampling above (lines ~460-478) —
+    # applying weights computed on the pre-oversampling imbalance here would
+    # double-compensate: minority classes get duplicated via augmentation
+    # AND upweighted in the loss, while majority classes get suppressed in
+    # the loss despite being present in equal numbers post-oversampling.
+    # This was the likely cause of the model failing to properly separate
+    # normal/benign/malignant — recompute on the real post-oversampling `y`.
     class_weights = compute_class_weight(
-        'balanced', classes=np.unique(y_train_int), y=y_train_int
+        'balanced', classes=np.unique(y), y=y
     )
-    class_weight_dict = dict(enumerate(class_weights))
-    print(f"  Class weights: {class_weight_dict}")
+    class_weight_dict = {i: float(class_weights[i]) for i in range(num_classes)}
+    print(f"  Original class counts (pre-oversampling): { {k: original_sizes[k] for k in original_sizes} }")
+    print(f"  Post-oversampling class weights (should be ~1.0 each): {class_weight_dict}")
 
     return X_train, X_test, y_train, y_test, class_weight_dict, num_classes
 
@@ -598,7 +614,7 @@ def train_breast_cancer_model(use_transfer=True, use_6_classes=False):
     # Compile with standard categorical_crossentropy + class weights
     # (avoids focal_loss serialization issues when loading in server.py)
     model.compile(
-        optimizer=Adam(learning_rate=0.001 if use_transfer else 0.0005, clipnorm=1.0),
+        optimizer=Adam(learning_rate=0.0002, clipnorm=1.0),
         loss='categorical_crossentropy',
         metrics=['accuracy',
                  keras.metrics.Precision(name='precision'),
@@ -616,7 +632,11 @@ def train_breast_cancer_model(use_transfer=True, use_6_classes=False):
         width_shift_range=0.2,
         height_shift_range=0.2,
         horizontal_flip=True,
-        vertical_flip=True,
+        # vertical_flip intentionally omitted: breast ultrasound has a fixed
+        # anatomical orientation (skin/fat near top, deeper tissue below).
+        # Flipping vertically manufactures physically implausible images and
+        # destroys depth-dependent diagnostic features like posterior
+        # acoustic shadowing behind malignant masses.
         zoom_range=0.2,
         shear_range=0.15,
         brightness_range=[0.75, 1.25],
@@ -625,14 +645,14 @@ def train_breast_cancer_model(use_transfer=True, use_6_classes=False):
     )
 
     # Callbacks
-    total_epochs_phase1 = 20
+    total_epochs_phase1 = 25
     callbacks_phase1 = [
         EarlyStopping(
             monitor='val_auc', mode='max',
-            patience=7, restore_best_weights=True, verbose=1
+            patience=8, restore_best_weights=True, verbose=1
         ),
         ReduceLROnPlateau(
-            monitor='val_loss', factor=0.5, patience=3,
+            monitor='val_loss', factor=0.5, patience=4,
             min_lr=1e-7, verbose=1
         ),
         ModelCheckpoint(
@@ -673,7 +693,7 @@ def train_breast_cancer_model(use_transfer=True, use_6_classes=False):
 
         # Recompile with very low learning rate
         model.compile(
-            optimizer=Adam(learning_rate=0.00005),
+            optimizer=Adam(learning_rate=0.00002),
             loss='categorical_crossentropy',
             metrics=['accuracy',
                      keras.metrics.Precision(name='precision'),
@@ -681,14 +701,14 @@ def train_breast_cancer_model(use_transfer=True, use_6_classes=False):
                      keras.metrics.AUC(name='auc')]
         )
 
-        total_epochs_phase2 = 10
+        total_epochs_phase2 = 15
         callbacks_phase2 = [
             EarlyStopping(
                 monitor='val_auc', mode='max',
-                patience=5, restore_best_weights=True, verbose=1
+                patience=6, restore_best_weights=True, verbose=1
             ),
             ReduceLROnPlateau(
-                monitor='val_loss', factor=0.5, patience=2,
+                monitor='val_loss', factor=0.5, patience=3,
                 min_lr=1e-8, verbose=1
             ),
             ModelCheckpoint(

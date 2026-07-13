@@ -136,7 +136,7 @@ function HealthTips() {
     <div className="space-y-6 animate-fade-in">
       <div>
         <h1 className="page-title">Health Tips</h1>
-        <p className="text-gray-600 -mt-4 mb-6">
+        <p className="page-subtitle -mt-3">
           Evidence-based health tips to help you live a healthier life.
         </p>
       </div>
@@ -164,7 +164,7 @@ function HealthTips() {
             className={`flex items-center gap-2 px-4 py-2 rounded-full font-medium whitespace-nowrap transition-colors ${
               activeCategory === category.id
                 ? 'bg-primary-600 text-white'
-                : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                : 'bg-zinc-100 dark:bg-zinc-850 text-zinc-600 dark:text-zinc-450 hover:bg-zinc-200 dark:hover:bg-zinc-800'
             }`}
           >
             <category.icon size={16} />
@@ -177,36 +177,36 @@ function HealthTips() {
         {filteredTips.map((tip) => (
           <div key={tip.id} className="card hover:shadow-md transition-shadow group">
             <div className="flex items-start gap-4">
-              <div className={`w-12 h-12 ${tip.color} rounded-xl flex items-center justify-center flex-shrink-0 text-white`}>
+              <div className={`w-12 h-12 ${tip.color} rounded-xl flex items-center justify-center flex-shrink-0 text-white shadow-sm`}>
                 <tip.icon size={24} />
               </div>
               <div className="flex-1">
-                <h3 className="font-semibold text-gray-900 group-hover:text-primary-600 transition-colors">
+                <h3 className="font-semibold text-zinc-900 dark:text-zinc-100 group-hover:text-primary-600 transition-colors">
                   {tip.title}
                 </h3>
-                <p className="text-sm text-gray-500 capitalize mt-1">{tip.category}</p>
+                <p className="text-xs text-zinc-400 dark:text-zinc-500 capitalize mt-1">{tip.category}</p>
               </div>
             </div>
-            <p className="text-gray-600 mt-4 text-sm leading-relaxed">
+            <p className="text-zinc-600 dark:text-zinc-400 mt-4 text-sm leading-relaxed">
               {tip.description}
             </p>
           </div>
         ))}
       </div>
 
-      <div className="card bg-gradient-to-r from-amber-50 to-orange-50 border-amber-200">
+      <div className="card bg-gradient-to-r from-amber-50/50 to-orange-50/50 dark:from-amber-950/10 dark:to-orange-950/10 border-amber-200/50 dark:border-amber-800/40">
         <div className="flex items-center gap-4">
-          <div className="w-12 h-12 bg-amber-100 rounded-xl flex items-center justify-center flex-shrink-0">
-            <Sun className="text-amber-600" size={24} />
+          <div className="w-12 h-12 bg-amber-100 dark:bg-amber-900/20 rounded-xl flex items-center justify-center flex-shrink-0">
+            <Sun className="text-amber-600 dark:text-amber-500" size={24} />
           </div>
           <div className="flex-1">
-            <h3 className="font-semibold text-gray-900">Daily Health Reminder</h3>
-            <p className="text-sm text-gray-600 mt-1">
+            <h3 className="font-semibold text-zinc-900 dark:text-zinc-100">Daily Health Reminder</h3>
+            <p className="text-sm text-zinc-650 dark:text-zinc-400 mt-1">
               Small, consistent healthy habits lead to significant long-term health benefits. 
               Start with one tip today and gradually build your healthy routine.
             </p>
           </div>
-          <ChevronRight className="text-gray-400" size={20} />
+          <ChevronRight className="text-zinc-400" size={20} />
         </div>
       </div>
     </div>

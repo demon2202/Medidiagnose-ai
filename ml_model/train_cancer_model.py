@@ -1,19 +1,3 @@
-"""
-train_cancer_model.py - PRODUCTION VERSION
-===========================================
-MediDiagnose-AI: Breast Cancer Tumor Classification
-
-Method: Calibrated Ensemble (RF + GB + LR) with soft voting
-Input:  10 mean tumor features from FNA test
-Output: Binary (0=Benign, 1=Malignant) + calibrated probability
-
-Uses sklearn's REAL Wisconsin Breast Cancer dataset (569 samples)
-as the primary data source. Falls back to CSV if available.
-
-StandardScaler on 10 features — matches server.py exactly.
-CalibratedClassifierCV ensures realistic probability outputs.
-"""
-
 import os
 import json
 import numpy as np

@@ -15,7 +15,18 @@ import {
 } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 
+const healthTips = [
+  "Regular health check-ups can help detect potential health issues before they become serious. Schedule annual screenings and stay proactive about your health.",
+  "Drinking enough water is crucial for your kidneys and overall health. Aim for at least 8 glasses of water daily.",
+  "Regular physical activity helps improve cardiovascular health, strengthens muscles, and boosts mood. Aim for 30 minutes of moderate exercise most days.",
+  "A balanced diet rich in fruits, vegetables, whole grains, and lean proteins supports your body's immune system and energy levels.",
+  "Quality sleep (7-9 hours per night) is vital for physical recovery, cognitive function, and maintaining a healthy immune system.",
+  "Managing stress through mindfulness, meditation, or hobbies can reduce the risk of heart disease, high blood pressure, and anxiety.",
+  "Protect your eyes and skin from harmful UV rays. Wear sunscreen daily and use sunglasses in bright sunlight."
+];
+
 function Dashboard() {
+  const dailyTip = healthTips[new Date().getDay() % healthTips.length];
   const { user, getStats, history } = useApp();
   const stats = getStats();
   const recentHistory = history.slice(0, 5);
@@ -221,8 +232,7 @@ function Dashboard() {
           <div className="flex-1">
             <h3 className="font-semibold text-gray-900 dark:text-white mb-1">Daily Health Tip</h3>
             <p className="text-gray-600 dark:text-gray-400 text-sm mb-3">
-              Regular health check-ups can help detect potential health issues before they become 
-              serious. Schedule annual screenings and stay proactive about your health.
+              {dailyTip}
             </p>
             <Link to="/health-tips" className="text-emerald-600 text-sm font-medium hover:text-emerald-700 flex items-center gap-1">
               View More Tips <ArrowRight size={16} />
