@@ -1070,14 +1070,23 @@ def train_pneumonia_model():
         verbose=1
     )
 
-    # ── Phase 2: Fine-tune last 60 layers ───────────────────────────────
-    print("\n🚀 Phase 2 — Fine-tuning last 60 backbone layers...")
+    # ── Phase 2: Fine-tune last 30 layers ───────────────────────────────
+    # NOTE: previously unfroze 60 layers at LR=2e-5. That run showed val_auc
+    # PEAK at epoch 1 (0.617) then degrade every single epoch after
+    # (0.617 -> 0.612 -> 0.557 -> 0.530 -> 0.516 -> 0.514), with
+    # ModelCheckpoint never firing again after epoch 1 - a textbook
+    # overfitting/instability signature from fine-tuning too many layers,
+    # too fast, on a limited dataset (~4,450 train images). Unfreezing
+    # fewer layers at a lower LR gives the model less room to overfit per
+    # step and more epochs of genuine, stable improvement before it
+    # plateaus.
+    print("\n🚀 Phase 2 — Fine-tuning last 30 backbone layers...")
     base_model.trainable = True
-    for layer in base_model.layers[:-60]:
+    for layer in base_model.layers[:-30]:
         layer.trainable = False
 
     model.compile(
-        optimizer=Adam(learning_rate=0.00002),
+        optimizer=Adam(learning_rate=0.000005),
         loss=focal_loss(gamma=2.0, alpha=focal_alpha),  # same derived alpha as Phase 1
         metrics=['accuracy',
                  keras.metrics.Precision(name='precision'),
@@ -1086,7 +1095,7 @@ def train_pneumonia_model():
     )
 
     callbacks_ft = [
-        EarlyStopping(monitor='val_auc', mode='max', patience=5,
+        EarlyStopping(monitor='val_auc', mode='max', patience=4,
                       restore_best_weights=True, verbose=1),
         ReduceLROnPlateau(monitor='val_loss', factor=0.5, patience=2,
                           min_lr=1e-8, verbose=1),
