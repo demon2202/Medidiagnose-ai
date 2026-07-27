@@ -993,23 +993,31 @@ def validate_image_type(img_array, expected_type):
                 'suggestion': 'Please upload a grayscale mammogram or breast ultrasound.',
                 'confidence': 0.85
             }
-        # Reject ECG
-        if brightness > 0.72 and bright_ratio > 0.45 and grid_score > 0.003:
+        # Reject ECG: bright background AND low texture (grid_score is NOT
+        # a reliable signal here - real ultrasounds have legitimately high
+        # row/column mean variance from depth-dependent tissue/shadow
+        # regions, which is structural, not a periodic ECG grid. Verified
+        # against two real ultrasound uploads: grid_score was high
+        # (~0.036-0.040) on both, but edge_intensity (fine-grained
+        # graininess from speckle) stayed low-to-moderate (~0.049-0.051),
+        # comfortably below what a smooth ECG-paper background implies.
+        if brightness > 0.72 and bright_ratio > 0.45 and edge_intensity < 0.035:
             return {
                 'is_valid': False,
                 'message': 'This image looks like an ECG printout, not a mammogram.',
                 'suggestion': 'Please upload a mammogram image for breast cancer screening.',
                 'confidence': 0.8
             }
-        # Reject X-ray: X-rays have medium brightness and lack the large black background
-        # Mammograms are characterized by a large dark (black) surround around bright tissue
-        if brightness > 0.38 and dark_ratio < 0.35:
-            return {
-                'is_valid': False,
-                'message': 'This image looks like a chest X-ray, not a mammogram.',
-                'suggestion': 'Please upload a mammogram image. Use the Chest X-Ray tool for X-rays.',
-                'confidence': 0.78
-            }
+        # NOTE: the model actually deployed here is trained on breast
+        # ULTRASOUND (BUSI dataset), not mammogram X-ray film. Ultrasound
+        # is typically bright with grainy speckle texture filling most of
+        # the frame - not a mammogram's dark background with a sparse
+        # bright mass. The previous "brightness > 0.38 and dark_ratio <
+        # 0.35 -> reject as X-ray" rule was rejecting normal, correctly-
+        # uploaded ultrasound images (verified against two real uploads:
+        # brightness ~0.80, dark_ratio ~0.01-0.03, both well past that
+        # threshold) purely for having ordinary ultrasound brightness.
+        # Removed - it described normal ultrasound appearance, not a defect.
         return {'is_valid': True, 'message': 'Valid mammogram/breast scan.', 'confidence': 0.75}
 
     # ---------------------------------------------------------------

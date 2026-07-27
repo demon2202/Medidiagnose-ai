@@ -298,7 +298,12 @@ class ImageValidator:
 
           SKIN:  color (rgb_diff>0.05), warm skin tones, moderate brightness
           XRAY:  grayscale, brightness 0.20-0.70, low bright_ratio
-          MAMMO: grayscale, brightness <0.35, dark_ratio >0.35
+          BREAST: grayscale, ULTRASOUND (not mammogram X-ray) - typically
+                 bright with grainy speckle texture filling most of the
+                 frame, unlike a mammogram film's dark background with a
+                 sparse bright mass. Brightness varies widely and
+                 legitimately; texture (edge_intensity) is the more
+                 reliable signal for ruling out other modalities.
           ECG:   light background (brightness>0.65 OR bright_ratio>0.50),
                  often slightly colored (pink grid paper)
 
@@ -403,15 +408,24 @@ class ImageValidator:
                         'This appears to be an ECG or document, not a mammogram.',
                         'Please upload a mammogram image.'
                     )
-            if brightness > 0.40 and dark_ratio < 0.20:
+            # NOTE: the model actually deployed for this endpoint is trained
+            # on breast ULTRASOUND images (BUSI dataset), not mammogram
+            # X-rays. Ultrasound is typically bright with grainy speckle
+            # texture filling most of the frame - not the dark-background,
+            # sparse-bright-mass look of a mammogram film. A prior version
+            # of this check rejected genuine ultrasounds as "looks like a
+            # chest X-ray" purely for being bright with low dark_ratio,
+            # which is normal, expected ultrasound appearance, not a defect.
+            # Verified against a real, correctly-uploaded ultrasound
+            # (brightness=0.80, dark_ratio=0.03, edge_intensity=0.05):
+            # only reject bright images that ALSO have low texture
+            # (edge_intensity), since that combination indicates a smooth
+            # document/ECG-paper background rather than grainy ultrasound
+            # tissue signal.
+            if stats['edge_intensity'] < 0.035 and bright_ratio > 0.55 and brightness > 0.70:
                 return _reject(
-                    'This image looks like a chest X-ray, not a mammogram.',
-                    'Please upload a mammogram. Use the Chest X-Ray tool for X-rays.'
-                )
-            if bright_ratio > 0.50 and brightness > 0.65:
-                return _reject(
-                    'This image looks like an ECG printout, not a mammogram.',
-                    'Please upload a mammogram image.'
+                    'This image looks like an ECG printout or document, not an ultrasound/mammogram.',
+                    'Please upload a mammogram or breast ultrasound image.'
                 )
             return _accept('Mammogram/Breast Ultrasound', 'mammogram')
 

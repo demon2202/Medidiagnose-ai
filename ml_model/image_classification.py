@@ -1,14 +1,20 @@
 import os
 import numpy as np
 import json
+import random
 import warnings
 warnings.filterwarnings('ignore')
+
+SEED = 42
+random.seed(SEED)
+np.random.seed(SEED)
 
 # ── TensorFlow ──────────────────────────────────────────────────────────────
 TF_AVAILABLE = False
 try:
     os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
     import tensorflow as tf
+    tf.random.set_seed(SEED)
     from tensorflow import keras
     from tensorflow.keras import layers, models, regularizers
     from tensorflow.keras.preprocessing.image import ImageDataGenerator
@@ -484,16 +490,7 @@ def get_demo_pneumonia_result(image_path_or_array=None):
 # ══════════════════════════════════════════════════════════════════════════════
 
 def create_skin_model(input_shape=(224, 224, 3), num_classes=7):
-    """
-    Skin cancer model — MobileNetV2 transfer learning.
-    Input:  RGB (224, 224, 3) in [0, 1] range.
-    Output: softmax over 7 classes.
 
-    Note: Scale input to [-1, 1] range for MobileNetV2 pretrained weights.
-    clipnorm=1.0 on Adam prevents val_loss explosion from unconstrained head gradients.
-
-    Returns: (model, base_model_reference_for_finetuning)
-    """
     inputs = layers.Input(shape=input_shape, name='skin_input')
     
     # Scale inputs from [0, 1] to [-1, 1] for MobileNetV2
@@ -516,19 +513,7 @@ def create_skin_model(input_shape=(224, 224, 3), num_classes=7):
 
 
 
-def create_pneumonia_model(input_shape=(224, 224, 1), num_classes=2):
-    """
-    Pneumonia model — MobileNetV2 transfer learning.
-
-    This model:
-      1. Takes GRAYSCALE input (224, 224, 1) — compatible with server.py
-      2. Internally replicates to 3 channels for MobileNetV2
-      3. Lambda layer rescales [0,1] -> [-1,1] to match MobileNetV2 training
-      4. GAP -> Dropout(0.3) -> Dense(2)
-      5. Standard categorical_crossentropy → loads without issues
-
-    Returns: (model, base_model_reference_for_finetuning)
-    """
+def create_pneumonia_model(input_shape=(224, 224, 1), num_classes=2, output_bias=None):
     gray_input = layers.Input(shape=input_shape, name='xray_input')
 
     # ── Replicate grayscale → 3 channels for pretrained backbone ────────
@@ -547,7 +532,8 @@ def create_pneumonia_model(input_shape=(224, 224, 1), num_classes=2):
     x = base_model(x, training=False)
     x = layers.GlobalAveragePooling2D()(x)
     x = layers.Dropout(0.35)(x)
-    outputs = layers.Dense(1, activation='sigmoid')(x)
+    bias_init = keras.initializers.Constant(output_bias) if output_bias is not None else 'zeros'
+    outputs = layers.Dense(1, activation='sigmoid', bias_initializer=bias_init)(x)
 
     model = models.Model(gray_input, outputs, name='pneumonia_mobilenetv2')
     return model, base_model
@@ -945,24 +931,6 @@ def train_skin_cancer_model(max_samples_per_class=1500):
 
 
 def train_pneumonia_model():
-    """
-    Train pneumonia detection: MobileNetV2 transfer learning, two-phase.
-
-    KEY FIXES vs broken version:
-      Old: binary_crossentropy + balanced class weights → class collapsed to Normal
-           (0% recall, 37.5% accuracy — always predicts Normal)
-      New:
-        - Focal loss (gamma=2) punishes confident wrong predictions heavily,
-          forcing the model to learn rare NORMAL cases without collapsing
-        - Hard-coded Pneumonia class weight = 3x (compensates for imbalance)
-        - Post-training threshold calibration: finds optimal cutoff via ROC
-          so the saved model isn't stuck at 0.5
-        - Saves optimal_threshold to pneumonia_config.json
-        - server.py reads PNEUMONIA_THRESHOLD=0.35 as default fallback
-
-    Phase 1: frozen backbone, lr=0.0002, 20 epochs (focal loss)
-    Phase 2: fine-tune last 60 layers, lr=2e-5, 15 epochs (focal loss)
-    """
     if not TF_AVAILABLE:
         print("❌ TensorFlow required"); return None
 
@@ -990,19 +958,15 @@ def train_pneumonia_model():
     # ── Create model ────────────────────────────────────────────────────
     print("\n🔧 Creating MobileNetV2 model (binary pneumonia classifier)...")
     print("   Input: (224, 224, 1) grayscale → internally replicated to 3ch")
-    model, base_model = create_pneumonia_model((IMG_SIZE, IMG_SIZE, 1), 1)
+    n_pos = int(np.sum(y_train))
+    n_neg = int(len(y_train) - n_pos)
+    initial_bias = float(np.log(n_pos / n_neg))
+    print(f"   Output bias initialized to class log-odds: {initial_bias:.4f} "
+          f"(pos={n_pos}, neg={n_neg}) - starts predictions at the true "
+          f"class prior instead of a 0.5 coin-flip")
+    model, base_model = create_pneumonia_model((IMG_SIZE, IMG_SIZE, 1), 1, output_bias=initial_bias)
 
-    # ── Define Focal Loss (replaces binary_crossentropy) ────────────────
-    # Focal loss focuses training on hard-to-classify examples.
-    # gamma=2 means easy examples get downweighted 4x vs hard ones.
-    # This prevents the model from collapsing to always predict Normal.
-    #
-    # alpha is derived from the ACTUAL measured class imbalance (cw_dict,
-    # computed via compute_class_weight('balanced') on the real data) rather
-    # than a hardcoded guess. This dataset's standard split has Pneumonia as
-    # the MAJORITY class (~74%), so alpha must favor the MINORITY (Normal)
-    # class to correct imbalance — alpha_t = y_true*alpha + (1-y_true)*(1-alpha),
-    # so a low alpha gives Pneumonia low weight and Normal high weight.
+
     def focal_loss(gamma=2.0, alpha=0.75):
         """Binary focal loss. alpha weights the positive (pneumonia) class."""
         def loss(y_true, y_pred):
@@ -1014,10 +978,7 @@ def train_pneumonia_model():
             return tf.reduce_mean(focal_weight * bce)
         return loss
 
-    # cw_dict[1] / (cw_dict[0] + cw_dict[1]) gives Pneumonia's SHARE of the
-    # combined balanced weight — since Pneumonia is the majority class its
-    # 'balanced' weight is smaller, so this naturally lands well below 0.5,
-    # correctly giving Normal (the minority) the higher alpha_t.
+
     focal_alpha = cw_dict[1] / (cw_dict[0] + cw_dict[1])
     print(f"  Focal loss alpha (derived from measured class balance): {focal_alpha:.4f}")
     print(f"    -> Pneumonia weight: {focal_alpha:.4f}   Normal weight: {1 - focal_alpha:.4f}")
@@ -1045,8 +1006,9 @@ def train_pneumonia_model():
     )
 
     callbacks = [
+
         EarlyStopping(monitor='val_auc', mode='max', patience=7,
-                      restore_best_weights=True, verbose=1),
+                      restore_best_weights=True, verbose=1, start_from_epoch=5),
         ReduceLROnPlateau(monitor='val_loss', factor=0.5, patience=3,
                           min_lr=1e-7, verbose=1),
         ModelCheckpoint(PNEUMONIA_MODEL_PATH, monitor='val_auc', mode='max',
@@ -1055,13 +1017,7 @@ def train_pneumonia_model():
 
     # ── Phase 1: Frozen backbone ────────────────────────────────────────
     print("\n🚀 Phase 1 — Training classification head (backbone frozen)...")
-    # NOTE: class_weight intentionally omitted. With a custom loss that
-    # reduces to a scalar internally (tf.reduce_mean inside focal_loss),
-    # Keras cannot apply true per-sample class_weight — it degrades into a
-    # noisy, batch-composition-dependent global loss multiplier instead
-    # (verified empirically: identical gradient direction, only magnitude
-    # changes). Class balance is already handled correctly, per-sample,
-    # by focal_alpha above.
+
     model.fit(
         datagen.flow(X_train, y_train, batch_size=32),
         epochs=20,
@@ -1070,16 +1026,7 @@ def train_pneumonia_model():
         verbose=1
     )
 
-    # ── Phase 2: Fine-tune last 30 layers ───────────────────────────────
-    # NOTE: previously unfroze 60 layers at LR=2e-5. That run showed val_auc
-    # PEAK at epoch 1 (0.617) then degrade every single epoch after
-    # (0.617 -> 0.612 -> 0.557 -> 0.530 -> 0.516 -> 0.514), with
-    # ModelCheckpoint never firing again after epoch 1 - a textbook
-    # overfitting/instability signature from fine-tuning too many layers,
-    # too fast, on a limited dataset (~4,450 train images). Unfreezing
-    # fewer layers at a lower LR gives the model less room to overfit per
-    # step and more epochs of genuine, stable improvement before it
-    # plateaus.
+
     print("\n🚀 Phase 2 — Fine-tuning last 30 backbone layers...")
     base_model.trainable = True
     for layer in base_model.layers[:-30]:
@@ -1149,9 +1096,7 @@ def train_pneumonia_model():
         print(f"    {status} True: {true_label:10s}  Pred: {pred_label:10s}  "
               f"Conf: {conf:.4f}  (Prob={prob:.3f})")
 
-    # ── Threshold calibration via ROC curve ─────────────────────────────
-    # Find the threshold that maximizes Youden's J (sensitivity + specificity - 1)
-    # This is the optimal operating point for the model.
+
     print("\n📐 Finding optimal classification threshold via ROC...")
     try:
         from sklearn.metrics import roc_curve

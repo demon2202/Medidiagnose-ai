@@ -672,7 +672,7 @@ function ImageAnalysis() {
                   <h4 className="font-semibold text-orange-800 dark:text-orange-300 flex items-center gap-2"><AlertTriangle size={16} /> Wrong File Type</h4>
                   <p className="text-sm text-orange-700 dark:text-orange-400 mt-1">{validationError.message}</p>
                   <div className="mt-3 p-3 bg-orange-100 dark:bg-orange-900/30 rounded-lg">
-                    <p className="text-sm font-medium text-orange-800 dark:text-orange-300">💡 {validationError.suggestion}</p>
+                    <p className="text-sm font-medium text-orange-800 dark:text-orange-300">{validationError.suggestion}</p>
                   </div>
                   <button onClick={clearSelection} className="mt-3 w-full px-4 py-2 bg-orange-500 text-white rounded-lg hover:bg-orange-600 transition-colors text-sm font-medium">
                     Upload Correct File
@@ -691,7 +691,7 @@ function ImageAnalysis() {
                 {getSeverityIcon(result.severity)}
                 <div className="flex-1">
                   <h3 className="font-semibold text-gray-900 dark:text-white text-lg">Analysis Complete</h3>
-                  {result.signal_processed && <span className="text-xs text-green-600 dark:text-green-400 bg-green-100 dark:bg-green-900/30 px-2 py-0.5 rounded-full font-medium ml-1">📊 Signal Analysis</span>}
+                  {result.signal_processed && <span className="text-xs text-green-600 dark:text-green-400 bg-green-100 dark:bg-green-900/30 px-2 py-0.5 rounded-full font-medium ml-1">Signal Analysis</span>}
                 </div>
               </div>
 

@@ -15,15 +15,15 @@
   "output_type": "sigmoid_binary",
   "architecture": "MobileNetV2_transfer_learning_focal_loss",
   "loss_function": "focal_loss(gamma=2.0, alpha=0.75)",
-  "optimal_threshold": 0.6379494071006775,
-  "accuracy": 0.625,
-  "precision": 0.647169828414917,
-  "recall": 0.879487156867981,
-  "auc": 0.6357933282852173,
+  "optimal_threshold": 0.08010071516036987,
+  "accuracy": 0.375,
+  "precision": 0.0,
+  "recall": 0.0,
+  "auc": 0.5549035668373108,
   "confusion_matrix": {
-    "TN": 47,
-    "FP": 187,
-    "FN": 47,
-    "TP": 343
+    "TN": 234,
+    "FP": 0,
+    "FN": 390,
+    "TP": 0
   }
 }
