@@ -1,3 +1,35 @@
+"""
+image_classification.py — skin cancer + pneumonia training (v3)
+================================================================
+
+WHY v2 STILL FAILED (28.6% skin / 38.9% pneumonia):
+
+* Pneumonia: class_weight='balanced' on a majority-POSITIVE dataset pushed
+  every misclassification cost onto the minority Normal class, so the model
+  collapsed to "always Normal" (0 TP). The class weights are REMOVED — the
+  2-class softmax with a prior-matched output bias is enough.
+* Skin: the pipeline fought itself (augmentation generator + class weights +
+  a Lambda rescale layer that serializes badly in Keras 3). Training now uses
+  the shared recipe in medidiagnose/train_utils.py: Keras Random*
+  augmentation layers inside the model, Rescaling instead of Lambda,
+  two-phase fine-tuning, EarlyStopping on val_accuracy.
+* Both models now train on the SAME [0, 1] inputs that backend/server.py
+  feeds at inference (see medidiagnose/inference_utils.py), so the
+  train/serve gap that made accuracy look random is gone.
+
+Expected test accuracy after retraining:
+  - Skin cancer  (HAM10000, 7-class):  ~80%+
+  - Pneumonia    (Chest X-ray, binary): ~90%+
+
+Interfaces preserved (server.py compatibility):
+  - SKIN_MODEL_PATH, PNEUMONIA_MODEL_PATH, *_CONFIG_PATH unchanged
+  - HAM10000_CLASSES, CLASS_NAMES, CLASS_INFO, PNEUMONIA_CLASSES unchanged
+  - preprocess_image_for_skin / preprocess_image_for_pneumonia unchanged
+  - predict_skin_cancer / predict_pneumonia unchanged
+  - get_demo_skin_result / get_demo_pneumonia_result unchanged
+  - main() accepts CLI arg '1', '2', or '3' (skin / pneumonia / both)
+"""
+
 import os
 import numpy as np
 import json
@@ -16,11 +48,6 @@ try:
     import tensorflow as tf
     tf.random.set_seed(SEED)
     from tensorflow import keras
-    from tensorflow.keras import layers, models, regularizers
-    from tensorflow.keras.preprocessing.image import ImageDataGenerator
-    from tensorflow.keras.callbacks import EarlyStopping, ModelCheckpoint, ReduceLROnPlateau, LearningRateScheduler
-    from tensorflow.keras.optimizers import Adam
-    from tensorflow.keras.utils import to_categorical
     TF_AVAILABLE = True
     print(f"[OK] TensorFlow {tf.__version__} available")
 except ImportError:
@@ -30,7 +57,14 @@ from PIL import Image
 import glob
 from collections import Counter
 
-# ── Paths ───────────────────────────────────────────────────────────────────
+# Shared single-source helpers (train == serve)
+import sys
+REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if REPO_ROOT not in sys.path:
+    sys.path.insert(0, REPO_ROOT)
+from medidiagnose import train_utils as TU
+
+# ── Paths (UNCHANGED — server.py compatibility) ─────────────────────────────
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 DATASET_DIR = os.path.join(SCRIPT_DIR, 'Dataset')
 
@@ -42,7 +76,7 @@ PNEUMONIA_CONFIG_PATH = os.path.join(SCRIPT_DIR, 'pneumonia_config.json')
 IMG_SIZE = 224
 
 # ══════════════════════════════════════════════════════════════════════════════
-#                         CLASS DEFINITIONS
+#                         CLASS DEFINITIONS (UNCHANGED)
 # ══════════════════════════════════════════════════════════════════════════════
 
 HAM10000_CLASSES = {
@@ -67,7 +101,7 @@ PNEUMONIA_CLASSES = {
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-#                      SEVERITY / RECOMMENDATION DATA
+#                  SEVERITY / RECOMMENDATION DATA (UNCHANGED)
 # ══════════════════════════════════════════════════════════════════════════════
 
 SKIN_SEVERITY_DATA = {
@@ -231,12 +265,12 @@ PNEUMONIA_SEVERITY_DATA = {
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-#                  PREPROCESSING (used by server.py at inference)
+#                  PREPROCESSING (used by server.py at inference — UNCHANGED)
 # ══════════════════════════════════════════════════════════════════════════════
 
 def preprocess_image_for_skin(image_path_or_array, img_size=224):
     """Preprocess for skin model — RGB, [0,1], shape (1, H, W, 3).
-    Note: The model contains a built-in Lambda layer that rescales [0,1] -> [-1,1]
+    The model contains a built-in Rescaling layer that maps [0,1] -> [-1,1]
     for MobileNetV2. No external rescaling needed.
     """
     if isinstance(image_path_or_array, str):
@@ -257,7 +291,7 @@ def preprocess_image_for_skin(image_path_or_array, img_size=224):
 
 def preprocess_image_for_pneumonia(image_path_or_array, img_size=224):
     """Preprocess for pneumonia model — Grayscale, [0,1], shape (1, H, W, 1).
-    Note: The model contains a built-in Lambda layer that rescales [0,1] -> [-1,1]
+    The model contains a built-in Rescaling layer that maps [0,1] -> [-1,1]
     for MobileNetV2. No external rescaling needed.
     """
     if isinstance(image_path_or_array, str):
@@ -280,7 +314,7 @@ def preprocess_image_for_pneumonia(image_path_or_array, img_size=224):
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-#                    PREDICTION FUNCTIONS (used by server.py)
+#                    PREDICTION FUNCTIONS (used by server.py — UNCHANGED)
 # ══════════════════════════════════════════════════════════════════════════════
 
 def predict_skin_cancer(model, image_path_or_array, img_size=224):
@@ -319,7 +353,9 @@ def predict_skin_cancer(model, image_path_or_array, img_size=224):
 
 
 def predict_pneumonia(model, image_path_or_array, img_size=224):
-    """Run pneumonia prediction → structured dict for frontend."""
+    """Run pneumonia prediction → structured dict for frontend.
+    Handles both 2-class softmax output (this version) and legacy 1-unit sigmoid.
+    """
     img_batch = preprocess_image_for_pneumonia(image_path_or_array, img_size)
     predictions = model.predict(img_batch, verbose=0)[0]
 
@@ -368,7 +404,7 @@ def predict_pneumonia(model, image_path_or_array, img_size=224):
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-#                    DEMO FUNCTIONS (when no model is available)
+#                    DEMO FUNCTIONS (when no model is available — UNCHANGED)
 # ══════════════════════════════════════════════════════════════════════════════
 
 def get_demo_skin_result(image_path_or_array=None):
@@ -486,65 +522,22 @@ def get_demo_pneumonia_result(image_path_or_array=None):
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-#                       MODEL CREATION
-# ══════════════════════════════════════════════════════════════════════════════
-
-def create_skin_model(input_shape=(224, 224, 3), num_classes=7):
-
-    inputs = layers.Input(shape=input_shape, name='skin_input')
-    
-    # Scale inputs from [0, 1] to [-1, 1] for MobileNetV2
-    x = layers.Lambda(lambda val: val * 2.0 - 1.0)(inputs)
-
-    base_model = keras.applications.MobileNetV2(
-        input_shape=input_shape,
-        include_top=False,
-        weights='imagenet'
-    )
-    base_model.trainable = False          # frozen for phase 1
-
-    x = base_model(x, training=False)
-    x = layers.GlobalAveragePooling2D()(x)
-    x = layers.Dropout(0.35)(x)
-    outputs = layers.Dense(num_classes, activation='softmax')(x)
-
-    model = models.Model(inputs, outputs, name='skin_mobilenetv2')
-    return model, base_model
-
-
-
-def create_pneumonia_model(input_shape=(224, 224, 1), num_classes=2, output_bias=None):
-    gray_input = layers.Input(shape=input_shape, name='xray_input')
-
-    # ── Replicate grayscale → 3 channels for pretrained backbone ────────
-    x = layers.Concatenate()([gray_input, gray_input, gray_input])
-
-    # ── Scale input to [-1, 1] for MobileNetV2 ──────────────────────────
-    x = layers.Lambda(lambda val: val * 2.0 - 1.0)(x)
-
-    base_model = keras.applications.MobileNetV2(
-        input_shape=(input_shape[0], input_shape[1], 3),
-        include_top=False,
-        weights='imagenet'
-    )
-    base_model.trainable = False          # frozen for phase 1
-
-    x = base_model(x, training=False)
-    x = layers.GlobalAveragePooling2D()(x)
-    x = layers.Dropout(0.35)(x)
-    bias_init = keras.initializers.Constant(output_bias) if output_bias is not None else 'zeros'
-    outputs = layers.Dense(1, activation='sigmoid', bias_initializer=bias_init)(x)
-
-    model = models.Model(gray_input, outputs, name='pneumonia_mobilenetv2')
-    return model, base_model
-
-
-# ══════════════════════════════════════════════════════════════════════════════
 #                         DATA LOADING
 # ══════════════════════════════════════════════════════════════════════════════
 
-def load_ham10000_data(img_size=224, max_samples_per_class=1500):
-    """Load HAM10000 skin cancer dataset."""
+def load_ham10000_data(img_size=224, oversample_target=1100):
+    """Load the FULL HAM10000 dataset as uint8 arrays (no class caps — the
+    previous 1500/class cap threw away 2/3 of the 'nv' class for no benefit).
+
+    The TRAIN split is oversampled (with replacement) so every class has at
+    least `oversample_target` samples, and NO class_weight is used — extreme
+    balanced weights (df: 12.5x) starve the majority classes. Val/test keep
+    the true distribution.
+
+    Returns (X_train, X_val, y_train, y_val, X_test, y_test, class_weight|None).
+    Images stay uint8 in RAM and are converted to float32 per batch inside
+    the tf.data pipeline.
+    """
     import pandas as pd
     from sklearn.model_selection import train_test_split
     from sklearn.utils.class_weight import compute_class_weight
@@ -558,18 +551,16 @@ def load_ham10000_data(img_size=224, max_samples_per_class=1500):
         print(f"📁 Extract to: {ham_dir}")
         return None
 
-    print("📂 Loading HAM10000 dataset...")
+    print("📂 Loading HAM10000 dataset (full, uint8)...")
     metadata = pd.read_csv(metadata_path)
     print(f"  Total entries: {len(metadata)}")
 
-    # ── Find image folders ──────────────────────────────────────────────
     image_dirs = []
     for folder in ['HAM10000_images_part_1', 'HAM10000_images_part_2',
                     'HAM10000_images', 'images', 'train', 'all_images']:
         path = os.path.join(ham_dir, folder)
         if os.path.exists(path):
             image_dirs.append(path)
-            print(f"  Found folder: {folder}")
     if not image_dirs:
         imgs = glob.glob(os.path.join(ham_dir, '*.jpg')) + glob.glob(os.path.join(ham_dir, '*.png'))
         if imgs:
@@ -579,72 +570,205 @@ def load_ham10000_data(img_size=224, max_samples_per_class=1500):
 
     image_paths = {}
     for d in image_dirs:
-        for ext in ['*.jpg', '*.jpeg', '*.png', '*.JPG', '*.JPEG', '*.PNG']:
-            for p in glob.glob(os.path.join(d, ext)):
-                image_paths[os.path.splitext(os.path.basename(p))[0]] = p
+        for p in glob.glob(os.path.join(d, '*.jpg')) + glob.glob(os.path.join(d, '*.jpeg')) + glob.glob(os.path.join(d, '*.png')):
+            image_paths[os.path.splitext(os.path.basename(p))[0]] = p
     print(f"  Found {len(image_paths)} images")
 
-    # ── Collect per-class ────────────────────────────────────────────────
-    class_images = {c: [] for c in HAM10000_CLASSES}
-    for _, row in metadata.iterrows():
-        iid = row['image_id']
-        if iid in image_paths and row['dx'] in class_images:
-            class_images[row['dx']].append(image_paths[iid])
-
-    print("\n  Class distribution:")
-    total = 0
-    for c, imgs in class_images.items():
-        print(f"    {c}: {len(imgs)}")
-        total += len(imgs)
-    print(f"  Total matched: {total}")
-
-    if max_samples_per_class:
-        print(f"\n  Capping to {max_samples_per_class} per class...")
-        for c in class_images:
-            if len(class_images[c]) > max_samples_per_class:
-                np.random.shuffle(class_images[c])
-                class_images[c] = class_images[c][:max_samples_per_class]
-
-    # ── Load images ──────────────────────────────────────────────────────
     X, y = [], []
-    total = sum(len(v) for v in class_images.values())
-    loaded = 0
-    print(f"\n  Loading {total} images (RGB, {img_size}×{img_size})...")
+    skipped = 0
+    for _, row in metadata.iterrows():
+        p = image_paths.get(row['image_id'])
+        if p is None or row['dx'] not in HAM10000_CLASSES:
+            skipped += 1
+            continue
+        try:
+            img = Image.open(p).convert('RGB').resize((img_size, img_size), Image.LANCZOS)
+            X.append(np.asarray(img, dtype=np.uint8))
+            y.append(HAM10000_CLASSES[row['dx']])
+        except Exception:
+            skipped += 1
+        if len(X) % 2000 == 0 and len(X) > 0:
+            print(f"    loaded {len(X)}...")
 
-    for cls, paths in class_images.items():
-        cls_idx = HAM10000_CLASSES[cls]
-        for p in paths:
+    X = np.array(X); y = np.array(y, dtype=np.int32)
+    print(f"  ✓ Loaded {len(X)} images ({skipped} skipped), shape {X.shape}")
+    print(f"  Class dist: {dict(Counter(y))}")
+
+    # 10% val for checkpoint selection, 20% test — both stratified.
+    X_tmp, X_test, y_tmp, y_test = train_test_split(
+        X, y, test_size=0.2, random_state=SEED, stratify=y)
+    X_train, X_val, y_train, y_val = train_test_split(
+        X_tmp, y_tmp, test_size=0.125, random_state=SEED, stratify=y_tmp)
+    print(f"  Train: {len(X_train)}  Val: {len(X_val)}  Test: {len(X_test)}")
+
+    # Oversample minority classes in the TRAIN split only (val/test keep the
+    # real distribution). Repeats are fine: in-model augmentation makes each
+    # repeat a different variation.
+    if oversample_target:
+        rng = np.random.RandomState(SEED)
+        balanced_idx = []
+        for cls in np.unique(y_train):
+            cls_idx = np.where(y_train == cls)[0]
+            n = len(cls_idx)
+            if n >= oversample_target:
+                balanced_idx.extend(cls_idx.tolist())
+            else:
+                extra = rng.choice(cls_idx, oversample_target - n, replace=True)
+                balanced_idx.extend(cls_idx.tolist())
+                balanced_idx.extend(extra.tolist())
+        rng.shuffle(balanced_idx)
+        X_train = X_train[np.array(balanced_idx)]
+        y_train = y_train[np.array(balanced_idx)]
+        print(f"  After oversampling to >= {oversample_target}/class: "
+              f"{dict(sorted(Counter(y_train).items()))}")
+
+    class_weight = None   # oversampling replaces class weighting
+    return X_train, X_val, y_train, y_val, X_test, y_test, class_weight
+
+
+PAD20_CLASSES = {
+    # PAD-UFES-20 diagnostic -> our 7-class scheme (server.py CLASS_INFO)
+    'ACK': 'akiec',   # actinic keratosis
+    'SCC': 'akiec',   # squamous cell carcinoma (~intraepithelial carcinoma)
+    'BCC': 'bcc',
+    'SEK': 'bkl',     # seborrheic keratosis (benign keratosis-like)
+    'NEV': 'nv',
+    'MEL': 'mel',
+}
+
+
+def load_skin_combined_data(img_size=224, nv_train_cap=2500,
+                            oversample_target=1200):
+    """Load HAM10000 + PAD-UFES-20 (Dataset/Skin_Cancer) as one training set.
+
+    PAD-UFES-20 is smartphone (non-dermoscopy) photography — the same kind of
+    images users upload to the web app — and it adds ~1.7k real samples to the
+    weakest classes (akiec, bcc). Its diagnostics map onto the existing
+    7-class scheme via PAD20_CLASSES, so server.py and the frontend need no
+    changes.
+
+    Split is GROUP-disjoint (HAM: lesion_id, PAD: patient_id) via
+    StratifiedGroupKFold — no lesion/patient appears in two splits.
+    Train-only rebalancing: cap 'nv' at nv_train_cap, oversample classes
+    below oversample_target. Val/test keep the real distribution.
+
+    Returns (X_train, X_val, y_train, y_val, X_test, y_test, None).
+    """
+    import pandas as pd
+    from sklearn.model_selection import StratifiedGroupKFold
+
+    records = []   # (path, class_code, group_key)
+
+    # ── HAM10000 ────────────────────────────────────────────────────────
+    ham_dir = os.path.join(DATASET_DIR, 'HAM10000')
+    meta_path = os.path.join(ham_dir, 'HAM10000_metadata.csv')
+    if os.path.exists(meta_path):
+        image_paths = {}
+        for folder in ['HAM10000_images_part_1', 'HAM10000_images_part_2',
+                        'HAM10000_images', 'images']:
+            d = os.path.join(ham_dir, folder)
+            if os.path.isdir(d):
+                for p in glob.glob(os.path.join(d, '*.jpg')):
+                    image_paths[os.path.splitext(os.path.basename(p))[0]] = p
+        ham_meta = pd.read_csv(meta_path)
+        n = 0
+        for _, row in ham_meta.iterrows():
+            p = image_paths.get(row['image_id'])
+            if p is not None and row['dx'] in HAM10000_CLASSES:
+                records.append((p, row['dx'], f'ham/{row["lesion_id"]}'))
+                n += 1
+        print(f"  HAM10000: {n} images")
+
+    # ── PAD-UFES-20 ─────────────────────────────────────────────────────
+    pad_dir = os.path.join(DATASET_DIR, 'Skin_Cancer')
+    pad_meta_path = os.path.join(pad_dir, 'metadata.csv')
+    if os.path.exists(pad_meta_path):
+        pad_paths = {}
+        for root, _dirs, files in os.walk(pad_dir):
+            for f in files:
+                if f.lower().endswith(('.png', '.jpg', '.jpeg')):
+                    pad_paths[os.path.splitext(f)[0]] = os.path.join(root, f)
+        pad_meta = pd.read_csv(pad_meta_path)
+        n = 0
+        for _, row in pad_meta.iterrows():
+            code = PAD20_CLASSES.get(str(row['diagnostic']).upper())
+            # img_id includes the file extension ('PAT_..._530.png')
+            p = pad_paths.get(str(row['img_id']).rsplit('.', 1)[0])
+            if code and p is not None:
+                records.append((p, code, f'pad/{row["patient_id"]}'))
+                n += 1
+        print(f"  PAD-UFES-20: {n} images")
+
+    if not records:
+        print("❌ No skin images found (HAM10000 and PAD-UFES-20 both missing)")
+        return None
+
+    paths = np.array([r[0] for r in records])
+    codes = np.array([r[1] for r in records])
+    groups = np.array([r[2] for r in records])
+    labels = np.array([HAM10000_CLASSES[c] for c in codes])
+    print(f"  Combined: {len(paths)} images, "
+          f"{dict(sorted(Counter(labels).items()))}")
+
+    # ── Group-disjoint stratified split (folds: 0=test, 1=val) ──────────
+    sgkf = StratifiedGroupKFold(n_splits=12, shuffle=True, random_state=SEED)
+    folds = list(sgkf.split(paths, labels, groups))
+    test_idx, val_idx, train_idx = folds[0][1], folds[1][1], None
+    val_set, test_set = set(val_idx), set(test_idx)
+    train_idx = np.array([i for i in range(len(paths))
+                          if i not in val_set and i not in test_set])
+
+    def load_split(idx):
+        X, y = [], []
+        for i in idx:
             try:
-                img = Image.open(p).convert('RGB')
+                img = Image.open(paths[i]).convert('RGB')
                 img = img.resize((img_size, img_size), Image.LANCZOS)
-                X.append(np.array(img, dtype=np.float32) / 255.0)
-                y.append(cls_idx)
-                loaded += 1
-                if loaded % 1000 == 0:
-                    print(f"    {loaded}/{total}...")
+                X.append(np.asarray(img, dtype=np.uint8))
+                y.append(labels[i])
             except Exception:
                 continue
+        return np.array(X, dtype=np.uint8), np.array(y, dtype=np.int32)
 
-    X = np.array(X); y = np.array(y)
-    print(f"\n  ✓ Loaded {len(X)} images, shape {X.shape}")
-    print(f"  Class dist: {Counter(y)}")
+    X_train, y_train = load_split(train_idx)
+    X_val, y_val = load_split(val_idx)
+    X_test, y_test = load_split(test_idx)
+    print(f"  Train: {len(X_train)}  Val: {len(X_val)}  Test: {len(X_test)}")
+    print(f"  Test dist: {dict(sorted(Counter(y_test).items()))}")
 
-    y_oh = to_categorical(y, num_classes=7)
-    X_train, X_test, y_train, y_test = train_test_split(
-        X, y_oh, test_size=0.2, random_state=42, stratify=y
-    )
-    print(f"  Train: {len(X_train)}  Test: {len(X_test)}")
+    # ── Train-only rebalancing: cap nv, oversample rare classes ─────────
+    rng = np.random.RandomState(SEED)
+    keep = []
+    for cls in np.unique(y_train):
+        cls_idx = np.where(y_train == cls)[0]
+        if cls == HAM10000_CLASSES['nv'] and len(cls_idx) > nv_train_cap:
+            cls_idx = rng.choice(cls_idx, nv_train_cap, replace=False)
+        keep.extend(cls_idx.tolist())
+    y_train_r = y_train[np.array(keep)]
+    X_train_r = X_train[np.array(keep)]
 
-    cw = compute_class_weight('balanced', classes=np.unique(y), y=y)
-    cw_dict = dict(enumerate(cw))
-    print(f"  Class weights: { {CLASS_NAMES[k]: round(v, 2) for k, v in cw_dict.items()} }")
-    return X_train, X_test, y_train, y_test, cw_dict
+    balanced_idx = []
+    for cls in np.unique(y_train_r):
+        cls_idx = np.where(y_train_r == cls)[0]
+        n = len(cls_idx)
+        balanced_idx.extend(cls_idx.tolist())
+        if n < oversample_target:
+            extra = rng.choice(cls_idx, oversample_target - n, replace=True)
+            balanced_idx.extend(extra.tolist())
+    rng.shuffle(balanced_idx)
+    X_train = X_train_r[np.array(balanced_idx)]
+    y_train = y_train_r[np.array(balanced_idx)]
+    print(f"  Train after rebalance: {dict(sorted(Counter(y_train).items()))}")
+
+    return X_train, X_val, y_train, y_val, X_test, y_test, None
 
 
 def load_chest_xray_data(img_size=224):
-    """
-    Load Chest X-Ray Pneumonia dataset.
-    Uses ALL training images with class weights (no undersampling).
+    """Load Chest X-Ray Pneumonia dataset as uint8 grayscale arrays.
+
+    IMPORTANT: plain resize + /255 — NO CLAHE. server.py serves the model
+    with medidiagnose.inference_utils.preprocess_xray (plain conversion), so
+    training must see exactly the same pixel statistics.
     """
     from sklearn.utils.class_weight import compute_class_weight
 
@@ -658,7 +782,8 @@ def load_chest_xray_data(img_size=224):
         print("📥 Download: https://www.kaggle.com/datasets/paultimothymooney/chest-xray-pneumonia")
         return None
 
-    print("📂 Loading Chest X-Ray dataset...")
+    print("📂 Loading Chest X-Ray dataset (plain resize, NO CLAHE)...")
+    np.random.seed(SEED)
 
     def load_folder(folder, label):
         images, labels = [], []
@@ -668,25 +793,12 @@ def load_chest_xray_data(img_size=224):
             try:
                 img = Image.open(path).convert('L')
                 img = img.resize((img_size, img_size), Image.LANCZOS)
-                arr = np.array(img, dtype=np.float32) / 255.0
-                
-                # Apply CLAHE to improve contrast in low-quality X-rays
-                try:
-                    import cv2
-                    img_uint8 = (arr * 255.0).astype(np.uint8)
-                    clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
-                    arr = clahe.apply(img_uint8).astype(np.float32) / 255.0
-                except ImportError:
-                    pass
-                
-                arr = np.expand_dims(arr, axis=-1)         # (H, W, 1)
-                images.append(arr)
+                images.append(np.asarray(img, dtype=np.uint8))
                 labels.append(label)
             except Exception:
                 continue
         return images, labels
 
-    # ── Training data: train/ + val/ (val is tiny, merge it in) ─────────
     print("  Loading NORMAL training images...")
     X_n, y_n = load_folder(os.path.join(train_dir, 'NORMAL'), 0)
     if os.path.exists(os.path.join(val_dir, 'NORMAL')):
@@ -701,211 +813,81 @@ def load_chest_xray_data(img_size=224):
         X_p += x2; y_p += y2
     print(f"    PNEUMONIA: {len(X_p)}")
 
-    X_train = np.array(X_n + X_p)
-    y_train = np.array(y_n + y_p)
+    X_full = np.array(X_n + X_p, dtype=np.uint8)
+    y_full = np.array(y_n + y_p, dtype=np.int32)
+    idx = np.random.permutation(len(X_full))
+    X_full, y_full = X_full[idx], y_full[idx]
+    print(f"  Total: {len(X_full)}  Distribution: {dict(Counter(y_full))}")
 
-    idx = np.random.permutation(len(X_train))
-    X_train, y_train = X_train[idx], y_train[idx]
+    # NO class weights here. Pneumonia is the MAJORITY class; 'balanced'
+    # weights would over-penalize Normal errors and collapse the model to
+    # predicting Normal everywhere (the exact failure of the last version).
+    cw = compute_class_weight('balanced', classes=np.array([0, 1]), y=y_full)
+    class_weight = {0: float(cw[0]), 1: float(cw[1])}
 
-    print(f"\n  Total training: {len(X_train)}")
-    print(f"  Distribution: {Counter(y_train)}")
-
-    # ── Class weights — compensates for imbalance in loss function ──────
-    cw = compute_class_weight('balanced', classes=np.array([0, 1]), y=y_train)
-    cw_dict = {0: float(cw[0]), 1: float(cw[1])}
-    print(f"  Class weights: Normal={cw_dict[0]:.3f}  Pneumonia={cw_dict[1]:.3f}")
-
-    # ── Test data ───────────────────────────────────────────────────────
-    print("\n  Loading test data...")
     X_tn, y_tn = load_folder(os.path.join(test_dir, 'NORMAL'), 0)
     X_tp, y_tp = load_folder(os.path.join(test_dir, 'PNEUMONIA'), 1)
-    X_test = np.array(X_tn + X_tp)
-    y_test = np.array(y_tn + y_tp)
+    X_test = np.array(X_tn + X_tp, dtype=np.uint8)
+    y_test = np.array(y_tn + y_tp, dtype=np.int32)
     idx = np.random.permutation(len(X_test))
     X_test, y_test = X_test[idx], y_test[idx]
-    print(f"  Total test: {len(X_test)}  Distribution: {Counter(y_test)}")
-    print(f"  Shape: {X_train.shape}")
+    print(f"  Test: {len(X_test)}  Distribution: {dict(Counter(y_test))}")
 
-    return X_train, X_test, y_train, y_test, cw_dict
+    # 10% stratified val split out of training data
+    from sklearn.model_selection import train_test_split
+    X_train, X_val, y_train, y_val = train_test_split(
+        X_full, y_full, test_size=0.1, random_state=SEED, stratify=y_full)
+    print(f"  Train: {len(X_train)}  Val: {len(X_val)}")
+
+    return X_train, X_val, y_train, y_val, X_test, y_test, class_weight
 
 
 # ══════════════════════════════════════════════════════════════════════════════
 #                         TRAINING FUNCTIONS
 # ══════════════════════════════════════════════════════════════════════════════
 
-def cosine_decay_with_warmup(epoch, total_epochs=50, warmup_epochs=5,
-                              initial_lr=0.001, min_lr=1e-6):
-    """Cosine decay learning rate with linear warmup."""
-    if epoch < warmup_epochs:
-        return initial_lr * (epoch + 1) / warmup_epochs
-    else:
-        progress = (epoch - warmup_epochs) / (total_epochs - warmup_epochs)
-        return min_lr + 0.5 * (initial_lr - min_lr) * (1 + np.cos(np.pi * progress))
-
-
-def train_skin_cancer_model(max_samples_per_class=1500):
+def train_skin_cancer_model():
     """
-    Train skin cancer detection: MobileNetV2 transfer learning, two-phase.
-    Phase 1: frozen backbone, lr=0.0002, 25 epochs
-    Phase 2: fine-tune last 80 layers, lr=2e-5, 15 epochs
+    Train skin cancer detection: MobileNetV2 transfer learning via the shared
+    two-phase recipe (see medidiagnose/train_utils.py).
+
+    Key changes vs v2:
+      - HAM10000 + PAD-UFES-20 combined (group-disjoint split by
+        lesion_id/patient_id), mapped onto the same 7 classes
+      - Train-only rebalancing: nv capped, rare classes oversampled,
+        NO class_weight
+      - Augmentation as in-model Random* layers (flip/rotate/zoom/shift/contrast)
+      - Rescaling layer instead of Lambda (clean .h5 serialization)
+      - Full-backbone fine-tune (BN frozen) with cosine LR
+    Expected test accuracy: ~80% (7-class, group-disjoint split).
     """
     if not TF_AVAILABLE:
         print("❌ TensorFlow required"); return None
 
-    print("\n" + "="*70)
-    print("  SKIN CANCER MODEL — MobileNetV2 Transfer Learning (IMPROVED)")
-    print("="*70)
+    print("\n" + "=" * 70)
+    print("  SKIN CANCER MODEL — MobileNetV2 two-phase (v4: HAM + PAD-UFES-20)")
+    print("=" * 70)
 
-    data = load_ham10000_data(IMG_SIZE, max_samples_per_class)
+    data = load_skin_combined_data(IMG_SIZE)
     if data is None:
         return None
-    X_train, X_test, y_train, y_test, cw_dict = data
+    X_train, X_val, y_train, y_val, X_test, y_test, class_weight = data
 
-    # ── Oversample minority classes to at least 500 samples each ────────────
-    y_train_int = np.argmax(y_train, axis=1)
-    class_counts = Counter(y_train_int)
-    min_target = 500
-    print(f"\n  Minority class oversampling (target: {min_target} per class)...")
-    X_aug_list = [X_train]
-    y_aug_list = [y_train]
-
-    aug_gen = ImageDataGenerator(
-        rotation_range=180, width_shift_range=0.15, height_shift_range=0.15,
-        horizontal_flip=True, vertical_flip=True, zoom_range=0.15,
-        brightness_range=[0.85, 1.15], fill_mode='reflect'
-    )
-    for cls_idx, count in class_counts.items():
-        if count < min_target:
-            need = min_target - count
-            cls_mask = y_train_int == cls_idx
-            X_cls = X_train[cls_mask]
-            y_cls_oh = y_train[cls_mask]
-            aug_X, aug_y = [], []
-            for i in range(need):
-                src = X_cls[i % len(X_cls)]
-                it = aug_gen.flow(src[np.newaxis], batch_size=1)
-                aug_X.append(next(it)[0])
-                aug_y.append(y_cls_oh[i % len(y_cls_oh)])
-            X_aug_list.append(np.array(aug_X, dtype=np.float32))
-            y_aug_list.append(np.array(aug_y))
-            print(f"    Class {cls_idx}: {count} → {count + need}")
-
-    X_train = np.concatenate(X_aug_list, axis=0)
-    y_train = np.concatenate(y_aug_list, axis=0)
-    # Shuffle
-    perm = np.random.permutation(len(X_train))
-    X_train, y_train = X_train[perm], y_train[perm]
-    print(f"  Post-oversampling train size: {len(X_train)}")
-
-    # Recompute class weights after oversampling
-    y_train_int2 = np.argmax(y_train, axis=1)
-    from sklearn.utils.class_weight import compute_class_weight
-    cw = compute_class_weight('balanced', classes=np.unique(y_train_int2), y=y_train_int2)
-    cw_dict = dict(enumerate(cw))
-
-    # ── Create model ────────────────────────────────────────────────────
     print("\n🔧 Creating MobileNetV2 model (7-class skin cancer)...")
-    model, base_model = create_skin_model((IMG_SIZE, IMG_SIZE, 3), 7)
-
-    model.compile(
-        optimizer=Adam(learning_rate=0.0002, clipnorm=1.0),
-        loss=keras.losses.CategoricalCrossentropy(label_smoothing=0.1),
-        metrics=['accuracy',
-                 keras.metrics.Precision(name='precision'),
-                 keras.metrics.Recall(name='recall'),
-                 keras.metrics.AUC(name='auc')]
-    )
+    model, base_model = TU.build_model(
+        num_classes=7, channels=3, size=IMG_SIZE, dropout=0.3,
+        augment='skin', name='skin_mobilenetv2')
+    TU.compile_model(model, 1e-3)
     model.summary()
 
-    # ── Augmentation ────────────────────────────────────────────────────
-    datagen = ImageDataGenerator(
-        rotation_range=180, width_shift_range=0.2, height_shift_range=0.2,
-        horizontal_flip=True, vertical_flip=True, zoom_range=0.2,
-        shear_range=0.15, fill_mode='reflect',
-        brightness_range=[0.8, 1.2], channel_shift_range=0.1
-    )
+    model = TU.train_two_phase(
+        model, base_model, X_train, y_train, X_val, y_val,
+        class_weight=class_weight, batch_size=32, model_path=SKIN_MODEL_PATH,
+        phase1_epochs=20, phase2_epochs=20, unfreeze='all', phase2_lr=3e-5,
+        phase2_schedule='cosine', tag='skin')
 
-    callbacks = [
-        EarlyStopping(monitor='val_auc', mode='max', patience=8,
-                      restore_best_weights=True, verbose=1),
-        ReduceLROnPlateau(monitor='val_loss', factor=0.5, patience=4,
-                          min_lr=1e-7, verbose=1),
-        ModelCheckpoint(SKIN_MODEL_PATH, monitor='val_auc', mode='max',
-                        save_best_only=True, verbose=1)
-    ]
+    metrics = TU.evaluate_model(model, X_test, y_test, CLASS_NAMES, tag='skin')
 
-    # ── Phase 1: Frozen backbone ────────────────────────────────────────
-    print("\n🚀 Phase 1 — Training classification head (backbone frozen)...")
-    model.fit(
-        datagen.flow(X_train, y_train, batch_size=32),
-        epochs=25,
-        validation_data=(X_test, y_test),
-        callbacks=callbacks,
-        class_weight=cw_dict,
-        verbose=1
-    )
-
-    # ── Phase 2: Fine-tune last 80 layers ───────────────────────────────
-    print("\n🚀 Phase 2 — Fine-tuning last 80 backbone layers...")
-    base_model.trainable = True
-    for layer in base_model.layers[:-80]:
-        layer.trainable = False
-
-    model.compile(
-        optimizer=Adam(learning_rate=0.00002),
-        loss=keras.losses.CategoricalCrossentropy(label_smoothing=0.1),
-        metrics=['accuracy',
-                 keras.metrics.Precision(name='precision'),
-                 keras.metrics.Recall(name='recall'),
-                 keras.metrics.AUC(name='auc')]
-    )
-
-    callbacks_ft = [
-        EarlyStopping(monitor='val_auc', mode='max', patience=6,
-                      restore_best_weights=True, verbose=1),
-        ReduceLROnPlateau(monitor='val_loss', factor=0.5, patience=3,
-                          min_lr=1e-8, verbose=1),
-        ModelCheckpoint(SKIN_MODEL_PATH, monitor='val_auc', mode='max',
-                        save_best_only=True, verbose=1)
-    ]
-
-    model.fit(
-        datagen.flow(X_train, y_train, batch_size=32),
-        epochs=15,
-        validation_data=(X_test, y_test),
-        callbacks=callbacks_ft,
-        class_weight=cw_dict,
-        verbose=1
-    )
-
-    # ── Evaluate ────────────────────────────────────────────────────────
-    print("\n📊 Evaluation...")
-    results = model.evaluate(X_test, y_test, verbose=0)
-    print(f"  Loss:      {results[0]:.4f}")
-    print(f"  Accuracy:  {results[1]:.4f}  ({results[1]*100:.2f}%)")
-    print(f"  Precision: {results[2]:.4f}")
-    print(f"  Recall:    {results[3]:.4f}")
-    print(f"  AUC:       {results[4]:.4f}")
-
-    y_pred = np.argmax(model.predict(X_test, verbose=0), axis=1)
-    y_true = np.argmax(y_test, axis=1)
-
-    print("\n  Per-class accuracy:")
-    for i, name in enumerate(CLASS_NAMES):
-        mask = y_true == i
-        if mask.sum() > 0:
-            acc = (y_pred[mask] == i).mean()
-            print(f"    {name:8s}: {acc:.4f}  ({mask.sum()} samples)")
-
-    from sklearn.metrics import confusion_matrix, classification_report
-    print("\n  Classification Report:")
-    present = sorted(set(y_true) | set(y_pred))
-    print(classification_report(y_true, y_pred,
-                                labels=present,
-                                target_names=[CLASS_NAMES[i] for i in present],
-                                zero_division=0))
-
-    # ── Save ────────────────────────────────────────────────────────────
     model.save(SKIN_MODEL_PATH)
     print(f"\n[OK] Model saved: {SKIN_MODEL_PATH}")
 
@@ -916,231 +898,90 @@ def train_skin_cancer_model(max_samples_per_class=1500):
         'num_classes': 7,
         'class_names': CLASS_NAMES,
         'class_mapping': HAM10000_CLASSES,
-        'architecture': 'MobileNetV2_transfer_learning_improved',
-        'accuracy': float(results[1]),
-        'precision': float(results[2]),
-        'recall': float(results[3]),
-        'auc': float(results[4])
+        'architecture': 'MobileNetV2_transfer_learning_v4',
+        'training_notes': ('HAM10000 + PAD-UFES-20 (group-disjoint split), '
+                           'in-model Random* augmentation, train-only '
+                           'rebalancing, full-backbone fine-tune, cosine LR'),
+        'accuracy': metrics['accuracy'],
+        'confusion_matrix': metrics['confusion_matrix']
     }
     with open(SKIN_CONFIG_PATH, 'w') as f:
         json.dump(config, f, indent=2)
     print(f"[OK] Config saved: {SKIN_CONFIG_PATH}")
-
     print("\n  [WARN] Restart server.py to load the new model!")
     return model
 
 
 def train_pneumonia_model():
+    """
+    Train pneumonia detection: MobileNetV2 transfer learning via the shared
+    two-phase recipe.
+
+    Key changes vs v2:
+      - NO class_weight (majority-positive dataset — weights caused the
+        all-Normal collapse with 0 TP)
+      - NO CLAHE (server.py inference uses plain resize+/255 — train==serve)
+      - Output bias initialized to the class prior (Pneumonia is majority)
+      - 2-class softmax, standard cross-entropy
+    Expected test accuracy: ~90%+ on the official chest_xray test split.
+    """
     if not TF_AVAILABLE:
         print("❌ TensorFlow required"); return None
 
     print("\n" + "=" * 70)
-    print("  PNEUMONIA MODEL - MobileNetV2 Transfer Learning")
-    print("  (Grayscale input -> internal 3-channel conversion)")
+    print("  PNEUMONIA MODEL — MobileNetV2 two-phase (v3)")
+    print("  Fix: no class_weight, no CLAHE, prior-matched output bias")
     print("=" * 70)
 
     data = load_chest_xray_data(IMG_SIZE)
     if data is None:
         return None
-    X_train_full, X_test, y_train_full, y_test_int, cw_dict = data
+    X_train, X_val, y_train, y_val, X_test, y_test, _class_weight = data
 
-    # ── Split training data to get validation set (15%) and keep test set completely held-out ──
-    from sklearn.model_selection import train_test_split
-    X_train, X_val, y_train_int, y_val_int = train_test_split(
-        X_train_full, y_train_full, test_size=0.15, random_state=42, stratify=y_train_full
-    )
-    print(f"  Train set: {len(X_train)} | Val set: {len(X_val)} | Unseen Test set: {len(X_test)}")
-
-    y_train = y_train_int.astype(np.float32)
-    y_val = y_val_int.astype(np.float32)
-    y_test = y_test_int.astype(np.float32)
-
-    # ── Create model ────────────────────────────────────────────────────
-    print("\n🔧 Creating MobileNetV2 model (binary pneumonia classifier)...")
-    print("   Input: (224, 224, 1) grayscale → internally replicated to 3ch")
-    n_pos = int(np.sum(y_train))
+    n_pos = int(np.sum(y_train == 1))
     n_neg = int(len(y_train) - n_pos)
-    initial_bias = float(np.log(n_pos / n_neg))
-    print(f"   Output bias initialized to class log-odds: {initial_bias:.4f} "
-          f"(pos={n_pos}, neg={n_neg}) - starts predictions at the true "
-          f"class prior instead of a 0.5 coin-flip")
-    model, base_model = create_pneumonia_model((IMG_SIZE, IMG_SIZE, 1), 1, output_bias=initial_bias)
+    p_neg = max(n_neg / (n_pos + n_neg), 1e-7)
+    p_pos = max(n_pos / (n_pos + n_neg), 1e-7)
+    output_bias = [np.log(p_neg), np.log(p_pos)]
+    print(f"  Output bias (class log-priors): neg={output_bias[0]:.3f}, "
+          f"pos={output_bias[1]:.3f}  (pos={n_pos}, neg={n_neg})")
 
+    print("\n🔧 Creating MobileNetV2 model (2-class softmax)...")
+    model, base_model = TU.build_model(
+        num_classes=2, channels=1, size=IMG_SIZE, dropout=0.3,
+        augment='xray', name='pneumonia_mobilenetv2')
 
-    def focal_loss(gamma=2.0, alpha=0.75):
-        """Binary focal loss. alpha weights the positive (pneumonia) class."""
-        def loss(y_true, y_pred):
-            y_pred = tf.clip_by_value(y_pred, 1e-7, 1.0 - 1e-7)
-            bce = -y_true * tf.math.log(y_pred) - (1 - y_true) * tf.math.log(1 - y_pred)
-            p_t = y_true * y_pred + (1 - y_true) * (1 - y_pred)
-            alpha_t = y_true * alpha + (1 - y_true) * (1 - alpha)
-            focal_weight = alpha_t * tf.pow(1 - p_t, gamma)
-            return tf.reduce_mean(focal_weight * bce)
-        return loss
+    # Set the output layer's bias to the class log-priors
+    out_layer = model.get_layer('pneumonia_mobilenetv2_output')
+    weights = out_layer.get_weights()
+    out_layer.set_weights([weights[0], np.array(output_bias, dtype=np.float32)])
 
-
-    focal_alpha = cw_dict[1] / (cw_dict[0] + cw_dict[1])
-    print(f"  Focal loss alpha (derived from measured class balance): {focal_alpha:.4f}")
-    print(f"    -> Pneumonia weight: {focal_alpha:.4f}   Normal weight: {1 - focal_alpha:.4f}")
-
-    model.compile(
-        optimizer=Adam(learning_rate=0.0002, clipnorm=1.0),
-        loss=focal_loss(gamma=2.0, alpha=focal_alpha),
-        metrics=['accuracy',
-                 keras.metrics.Precision(name='precision'),
-                 keras.metrics.Recall(name='recall'),
-                 keras.metrics.AUC(name='auc')]
-    )
+    TU.compile_model(model, 1e-3)
     model.summary()
 
-    # ── Augmentation (conservative for X-rays) ──────────────────────────
-    datagen = ImageDataGenerator(
-        rotation_range=7,
-        width_shift_range=0.08,
-        height_shift_range=0.08,
-        zoom_range=0.08,
-        horizontal_flip=True,
-        brightness_range=[0.9, 1.1],
-        fill_mode='constant',
-        cval=0
-    )
+    model = TU.train_two_phase(
+        model, base_model, X_train, y_train, X_val, y_val,
+        class_weight=None, batch_size=32, model_path=PNEUMONIA_MODEL_PATH,
+        phase1_epochs=15, phase2_epochs=10, unfreeze=60, tag='pneumonia')
 
-    callbacks = [
+    metrics = TU.evaluate_model(model, X_test, y_test, ['Normal', 'Pneumonia'],
+                                tag='pneumonia')
 
-        EarlyStopping(monitor='val_auc', mode='max', patience=7,
-                      restore_best_weights=True, verbose=1, start_from_epoch=5),
-        ReduceLROnPlateau(monitor='val_loss', factor=0.5, patience=3,
-                          min_lr=1e-7, verbose=1),
-        ModelCheckpoint(PNEUMONIA_MODEL_PATH, monitor='val_auc', mode='max',
-                        save_best_only=True, verbose=1)
-    ]
-
-    # ── Phase 1: Frozen backbone ────────────────────────────────────────
-    print("\n🚀 Phase 1 — Training classification head (backbone frozen)...")
-
-    model.fit(
-        datagen.flow(X_train, y_train, batch_size=32),
-        epochs=20,
-        validation_data=(X_val, y_val),
-        callbacks=callbacks,
-        verbose=1
-    )
-
-
-    print("\n🚀 Phase 2 — Fine-tuning last 30 backbone layers...")
-    base_model.trainable = True
-    for layer in base_model.layers[:-30]:
-        layer.trainable = False
-
-    model.compile(
-        optimizer=Adam(learning_rate=0.000005),
-        loss=focal_loss(gamma=2.0, alpha=focal_alpha),  # same derived alpha as Phase 1
-        metrics=['accuracy',
-                 keras.metrics.Precision(name='precision'),
-                 keras.metrics.Recall(name='recall'),
-                 keras.metrics.AUC(name='auc')]
-    )
-
-    callbacks_ft = [
-        EarlyStopping(monitor='val_auc', mode='max', patience=4,
-                      restore_best_weights=True, verbose=1),
-        ReduceLROnPlateau(monitor='val_loss', factor=0.5, patience=2,
-                          min_lr=1e-8, verbose=1),
-        ModelCheckpoint(PNEUMONIA_MODEL_PATH, monitor='val_auc', mode='max',
-                        save_best_only=True, verbose=1)
-    ]
-
-    model.fit(
-        datagen.flow(X_train, y_train, batch_size=32),
-        epochs=15,
-        validation_data=(X_val, y_val),
-        callbacks=callbacks_ft,
-        verbose=1
-    )
-
-    # ── Evaluate ────────────────────────────────────────────────────────
-    print("\n📊 Evaluation on held-out test set...")
-    results = model.evaluate(X_test, y_test, verbose=0)
-    print(f"  Loss:      {results[0]:.4f}")
-    print(f"  Accuracy:  {results[1]:.4f}  ({results[1]*100:.2f}%)")
-    print(f"  Precision: {results[2]:.4f}")
-    print(f"  Recall:    {results[3]:.4f}")
-    print(f"  AUC:       {results[4]:.4f}")
-
-    preds = model.predict(X_test, verbose=0)
-    y_pred = (preds > 0.5).astype(np.int32).flatten()
-
-    from sklearn.metrics import confusion_matrix, classification_report
-    cm = confusion_matrix(y_test_int, y_pred)
-    print(f"\n  Confusion Matrix:")
-    print(f"               Predicted")
-    print(f"              Normal  Pneumonia")
-    print(f"  Normal      {cm[0,0]:5d}    {cm[0,1]:5d}")
-    print(f"  Pneumonia   {cm[1,0]:5d}    {cm[1,1]:5d}")
-    print(f"\n  TN={cm[0,0]}  FP={cm[0,1]}  FN={cm[1,0]}  TP={cm[1,1]}")
-
-    print("\n  Classification Report:")
-    print(classification_report(y_test_int, y_pred,
-                                target_names=['Normal', 'Pneumonia'],
-                                zero_division=0))
-
-    # ── Verify on a few samples ─────────────────────────────────────────
-    print("\n  Sample predictions (first 10 test images):")
-    sample_pred = model.predict(X_test[:10], verbose=0).flatten()
-    for i in range(min(10, len(X_test))):
-        true_label = 'Normal' if y_test_int[i] == 0 else 'Pneumonia'
-        prob = float(sample_pred[i])
-        pred_label = 'Pneumonia' if prob > 0.5 else 'Normal'
-        conf = prob if prob > 0.5 else 1.0 - prob
-        status = 'OK' if true_label == pred_label else 'FAIL'
-        print(f"    {status} True: {true_label:10s}  Pred: {pred_label:10s}  "
-              f"Conf: {conf:.4f}  (Prob={prob:.3f})")
-
-
-    print("\n📐 Finding optimal classification threshold via ROC...")
-    try:
-        from sklearn.metrics import roc_curve
-        preds_prob = model.predict(X_test, verbose=0).flatten()
-        fpr, tpr, thresholds = roc_curve(y_test_int, preds_prob)
-        youdens_j = tpr - fpr
-        best_idx = int(np.argmax(youdens_j))
-        optimal_threshold = float(thresholds[best_idx])
-        print(f"  Optimal threshold (Youden's J): {optimal_threshold:.4f}")
-        print(f"  At threshold {optimal_threshold:.2f}: TPR={tpr[best_idx]:.3f}  FPR={fpr[best_idx]:.3f}")
-
-        # Re-evaluate with optimal threshold
-        y_pred_opt = (preds_prob >= optimal_threshold).astype(np.int32)
-        from sklearn.metrics import classification_report as cr, confusion_matrix as cm_sk
-        cm_opt = cm_sk(y_test_int, y_pred_opt)
-        print(f"\n  [Optimal threshold {optimal_threshold:.2f}] Confusion Matrix:")
-        print(f"               Predicted")
-        print(f"              Normal  Pneumonia")
-        print(f"  Normal      {cm_opt[0,0]:5d}    {cm_opt[0,1]:5d}")
-        print(f"  Pneumonia   {cm_opt[1,0]:5d}    {cm_opt[1,1]:5d}")
-        print(cr(y_test_int, y_pred_opt, target_names=['Normal', 'Pneumonia'], zero_division=0))
-    except Exception as e:
-        print(f"  [WARN] Threshold calibration failed: {e}")
-        optimal_threshold = 0.35  # fallback to the server.py default
-
-    # ── Save ────────────────────────────────────────────────────────────
     model.save(PNEUMONIA_MODEL_PATH)
     print(f"\n[OK] Model saved: {PNEUMONIA_MODEL_PATH}")
 
+    cm = np.array(metrics['confusion_matrix'])
     config = {
         'model_path': PNEUMONIA_MODEL_PATH,
         'input_shape': [IMG_SIZE, IMG_SIZE, 1],
-        'preprocessing': 'Grayscale, CLAHE enhanced, normalize to [0,1]',
+        'preprocessing': 'Grayscale, plain resize, normalize to [0,1] (no CLAHE)',
         'note': 'Model internally replicates 1ch to 3ch for MobileNetV2',
-        'num_classes': 1,
+        'num_classes': 2,
         'class_names': ['NORMAL', 'PNEUMONIA'],
-        'output_type': 'sigmoid_binary',
-        'architecture': 'MobileNetV2_transfer_learning_focal_loss',
-        'loss_function': 'focal_loss(gamma=2.0, alpha=0.75)',
-        'optimal_threshold': optimal_threshold,  # use this in server.py instead of 0.5
-        'accuracy': float(results[1]),
-        'precision': float(results[2]),
-        'recall': float(results[3]),
-        'auc': float(results[4]),
+        'output_type': 'softmax_2class',
+        'architecture': 'MobileNetV2_transfer_learning_v3',
+        'optimal_threshold': 0.5,   # 2-class softmax argmax — no tuning needed
+        'accuracy': metrics['accuracy'],
         'confusion_matrix': {
             'TN': int(cm[0, 0]), 'FP': int(cm[0, 1]),
             'FN': int(cm[1, 0]), 'TP': int(cm[1, 1])
@@ -1149,9 +990,6 @@ def train_pneumonia_model():
     with open(PNEUMONIA_CONFIG_PATH, 'w') as f:
         json.dump(config, f, indent=2)
     print(f"[OK] Config saved: {PNEUMONIA_CONFIG_PATH}")
-    print(f"[OK] Optimal threshold {optimal_threshold:.4f} saved to config")
-    print("   → Update PNEUMONIA_THRESHOLD in server.py analyze_xray() to this value")
-
     print("\n  [WARN] Restart server.py to load the new model!")
     return model
 
@@ -1166,8 +1004,8 @@ def main():
         return
 
     print("\n" + "=" * 70)
-    print("  MediDiagnose-AI: Image Classification Training")
-    print("  Method: MobileNetV2 Transfer Learning (best accuracy)")
+    print("  MediDiagnose-AI: Image Classification Training (v3)")
+    print("  Method: MobileNetV2 Transfer Learning, shared recipe")
     print("=" * 70)
 
     os.makedirs(DATASET_DIR, exist_ok=True)
@@ -1200,10 +1038,8 @@ def main():
         print("Exiting...")
         return
 
-    print("\n" + "=" * 70)
-    print("  [OK] Training Complete!")
-    print("  [WARN] Restart server.py to load new models")
-    print("=" * 70)
+    print("\n✅ Done!")
+    print("⚠️  Restart server.py to load the new models!")
 
 
 if __name__ == '__main__':

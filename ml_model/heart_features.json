@@ -130,6 +130,6 @@
     }
   },
   "model_type": "Logistic Regression",
-  "note": "NO feature engineering \u2014 13 raw features only",
-  "training_date": "2026-07-13T22:28:46.109095"
+  "note": "NO feature engineering \u2014 13 raw features only (polished with weighted ensemble)",
+  "training_date": "2026-09-15T12:24:20.071636"
 }

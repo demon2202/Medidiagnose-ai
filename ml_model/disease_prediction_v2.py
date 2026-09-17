@@ -519,7 +519,7 @@ def load_dataset():
       4. This ensures every disease has enough signal for the ensemble to
          produce high-confidence predictions (was causing 14-15% flat confidence)
     """
-    MIN_SAMPLES_PER_DISEASE = 200  # target rows per disease minimum
+    MIN_SAMPLES_PER_DISEASE = 400  # POLISHED: was 200 → 400 for more robust minority classes
 
     dataset_path = os.path.join(DATASET_DIR, 'dataset.csv')
 
@@ -644,16 +644,15 @@ def build_features(df, symptom_cols, all_symptoms):
 # ============================================================
 def train_ensemble(X, y, symptom_list):
     """
-    Train a VotingClassifier ensemble.
+    Train a VotingClassifier ensemble — POLISHED VERSION.
 
-    KEY IMPROVEMENTS over old version:
-    - Much more training data (300-500 samples/class vs 30-50)
-    - Calibrated predictions via CalibratedClassifierCV so probabilities are
-      meaningful (not 14% for everything)
-    - Stronger RF/ET: deeper trees, more estimators, lower min_samples_leaf
-    - NaiveBayes gets less weight (it under-estimates probability in rare classes)
-    - After training, wraps ensemble with Platt scaling (calibration) so the
-      probabilities sum to 1 and the top-1 score is realistic (50-80% range)
+    POLISHED CHANGES vs old version:
+    - Noise injection reduced from 2% to 0.5% (was causing minority class
+      confusion — Fungal infection had 50% recall, now expected 70%+)
+    - MIN_SAMPLES_PER_DISEASE raised from 200 to 400 (more augmentation
+      for rare diseases)
+    - Same VotingClassifier(RF+ET+GB+NB) architecture (already works)
+    - Cross-validation on full (non-deduplicated) weighted data preserved
 
     The model object will have:
         - model.predict(X)         → server.py uses this
@@ -716,10 +715,14 @@ def train_ensemble(X, y, symptom_list):
         X_unique, y_unique, test_size=0.20, random_state=42, stratify=y_unique
     )
 
-    # Add random symptom noise to training features to simulate patient variance
-    # Flip ~2% of the values (reduced from 3% to preserve signal with more data).
+    # Add LIGHT random symptom noise to training features to simulate patient variance.
+    # POLISHED: reduced from 2% to 0.5% because the old 2% rate was flipping
+    # ~26 symptoms per 133-feature row, which caused the model to confuse
+    # rare-disease cases (e.g. Fungal infection with only 2 test samples
+    # had 50% recall — half its predictions went to neighboring diseases
+    # because the noise injected false-positive symptoms).
     np.random.seed(42)
-    noise_mask = np.random.rand(*X_train.shape) < 0.02
+    noise_mask = np.random.rand(*X_train.shape) < 0.005
     noise_vals = np.where(
         X_train > 0.0,
         0.0,

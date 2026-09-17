@@ -1,369 +1,283 @@
 import React, { useState } from 'react';
 import axios from 'axios';
+import { motion as Motion, AnimatePresence } from 'framer-motion';
 import {
   HeartPulse,
-  Activity,
   Loader2,
-  AlertCircle,
-  CheckCircle,
-  Info,
-  TrendingUp,
-  Shield
+  CircleAlert,
+  Activity,
+  ArrowRight
 } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import { config } from '../config/config';
+import { scrollToId } from '../lib/scroll';
+import { cleanResult } from '../lib/text';
 import Disclaimer from '../components/common/Disclaimer';
+import ScreeningResultView from '../components/results/ScreeningResultView';
+import {
+  PageHeader,
+  TextField,
+  SelectField,
+  EmptyState,
+  Reveal
+} from '../components/ui/ui';
+import { easeOut } from '../lib/motion';
 
-function HeartCheck() {
+const FIELDS = [
+  { name: 'age', label: 'Age', kind: 'number', placeholder: 'Years', min: 20, max: 100 },
+  {
+    name: 'sex', label: 'Sex', kind: 'select',
+    options: [{ value: '', label: 'Select' }, { value: '0', label: 'Female' }, { value: '1', label: 'Male' }]
+  },
+  {
+    name: 'cp', label: 'Chest pain type', kind: 'select',
+    options: [
+      { value: '', label: 'Select' },
+      { value: '0', label: 'Typical angina' },
+      { value: '1', label: 'Atypical angina' },
+      { value: '2', label: 'Non-anginal pain' },
+      { value: '3', label: 'Asymptomatic' },
+    ]
+  },
+  { name: 'trestbps', label: 'Resting BP', kind: 'number', placeholder: 'mm Hg', min: 90, max: 200 },
+  { name: 'chol', label: 'Cholesterol', kind: 'number', placeholder: 'mg/dl', min: 100, max: 600 },
+  {
+    name: 'fbs', label: 'Fasting sugar > 120', kind: 'select',
+    options: [{ value: '', label: 'Select' }, { value: '0', label: 'No' }, { value: '1', label: 'Yes' }]
+  },
+  {
+    name: 'restecg', label: 'Resting ECG', kind: 'select',
+    options: [
+      { value: '', label: 'Select' },
+      { value: '0', label: 'Normal' },
+      { value: '1', label: 'ST-T abnormality' },
+      { value: '2', label: 'LV hypertrophy' },
+    ]
+  },
+  { name: 'thalach', label: 'Max heart rate', kind: 'number', placeholder: 'bpm', min: 60, max: 220 },
+  {
+    name: 'exang', label: 'Exercise angina', kind: 'select',
+    options: [{ value: '', label: 'Select' }, { value: '0', label: 'No' }, { value: '1', label: 'Yes' }]
+  },
+  { name: 'oldpeak', label: 'ST depression', kind: 'number', placeholder: 'Value', step: '0.1', min: 0, max: 7 },
+  {
+    name: 'slope', label: 'ST slope', kind: 'select',
+    options: [
+      { value: '', label: 'Select' },
+      { value: '0', label: 'Upsloping' },
+      { value: '1', label: 'Flat' },
+      { value: '2', label: 'Downsloping' },
+    ]
+  },
+  {
+    name: 'ca', label: 'Major vessels', kind: 'select',
+    options: [
+      { value: '', label: 'Select' },
+      { value: '0', label: '0' }, { value: '1', label: '1' },
+      { value: '2', label: '2' }, { value: '3', label: '3' },
+    ]
+  },
+  {
+    name: 'thal', label: 'Thalassemia', kind: 'select',
+    options: [
+      { value: '', label: 'Select' },
+      { value: '0', label: 'Normal' },
+      { value: '1', label: 'Fixed defect' },
+      { value: '2', label: 'Reversible defect' },
+      { value: '3', label: 'Unknown' },
+    ]
+  },
+];
+
+const EMPTY = Object.fromEntries(FIELDS.map((f) => [f.name, '']));
+
+export default function HeartCheck() {
   const { addToHistory, isLoading, setIsLoading, showNotification } = useApp();
-  const [formData, setFormData] = useState({
-    age: '',
-    sex: '',
-    cp: '',
-    trestbps: '',
-    chol: '',
-    fbs: '',
-    restecg: '',
-    thalach: '',
-    exang: '',
-    oldpeak: '',
-    slope: '',
-    ca: '',
-    thal: ''
-  });
+  const [form, setForm] = useState(EMPTY);
   const [result, setResult] = useState(null);
   const [error, setError] = useState(null);
 
-  const handleChange = (e) => {
-    const { name, value } = e.target;
-    setFormData(prev => ({ ...prev, [name]: value }));
-    setError(null);
-  };
+  const filled = FIELDS.filter((f) => form[f.name] !== '').length;
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    
-    // Validate all fields are filled
-    const emptyFields = Object.entries(formData).filter(([_, value]) => value === '');
-    if (emptyFields.length > 0) {
-      setError('Please fill in all fields');
+    if (filled < FIELDS.length) {
+      setError(`Fill in all fields — ${FIELDS.length - filled} remaining.`);
       return;
     }
-
     setIsLoading(true);
     setError(null);
     setResult(null);
-
     try {
-      // Convert form data to numbers
-      const numericData = {};
-      for (const [key, value] of Object.entries(formData)) {
-        numericData[key] = parseFloat(value);
-      }
-
-      const response = await axios.post(`${config.api.baseURL}/predict-heart`, numericData);
-
+      const numeric = Object.fromEntries(Object.entries(form).map(([k, v]) => [k, parseFloat(v)]));
+      const response = await axios.post(`${config.api.baseURL}/predict-heart`, numeric);
       if (response.data.success) {
-        setResult(response.data);
+        setResult(cleanResult(response.data));
         addToHistory({
           type: 'heart',
-          // risk_level is now returned directly by the server ("High" / "Moderate" / "Low")
           prediction: response.data.risk_level || response.data.prediction,
           confidence: response.data.confidence,
           probability: response.data.probability,
-          details: response.data.recommendation,
+          details: response.data.recommendation
         });
-        showNotification('Heart health analysis complete', 'success');
+        showNotification('Heart analysis complete', 'success');
+        requestAnimationFrame(() => scrollToId('heart-result'));
       } else {
         setError(response.data.error || 'Failed to analyze');
       }
     } catch (err) {
-      console.error('Heart check error:', err);
-      if (err.response) {
-        // Server responded with an error status (4xx / 5xx)
-        const msg = err.response.data?.error || err.response.data?.message || `Server error ${err.response.status}`;
-        setError(`Analysis failed: ${msg}`);
-      } else if (err.request) {
-        // Request was made but no response received — server truly unreachable
-        setError(`Failed to connect to the server. Please ensure the backend is running on ${config.api.baseURL}.`);
-      } else {
-        setError(`Request error: ${err.message}`);
-      }
+      if (err.response)
+        setError(`Analysis failed: ${err.response.data?.error || err.response.data?.message || `server error ${err.response.status}`}`);
+      else if (err.request)
+        setError(`Could not reach the server. Is the backend running on ${config.api.baseURL}?`);
+      else setError(`Request error: ${err.message}`);
     } finally {
       setIsLoading(false);
     }
   };
 
-  const formFields = [
-    { name: 'age', label: 'Age', type: 'number', placeholder: 'Years', min: 20, max: 100 },
-    { 
-      name: 'sex', label: 'Sex', type: 'select', 
-      options: [{ value: '', label: 'Select' }, { value: '0', label: 'Female' }, { value: '1', label: 'Male' }]
-    },
-    { 
-      name: 'cp', label: 'Chest Pain Type', type: 'select',
-      options: [
-        { value: '', label: 'Select' },
-        { value: '0', label: 'Typical Angina' },
-        { value: '1', label: 'Atypical Angina' },
-        { value: '2', label: 'Non-anginal Pain' },
-        { value: '3', label: 'Asymptomatic' }
-      ]
-    },
-    { name: 'trestbps', label: 'Resting Blood Pressure', type: 'number', placeholder: 'mm Hg', min: 90, max: 200 },
-    { name: 'chol', label: 'Cholesterol', type: 'number', placeholder: 'mg/dl', min: 100, max: 600 },
-    { 
-      name: 'fbs', label: 'Fasting Blood Sugar > 120', type: 'select',
-      options: [{ value: '', label: 'Select' }, { value: '0', label: 'No' }, { value: '1', label: 'Yes' }]
-    },
-    { 
-      name: 'restecg', label: 'Resting ECG', type: 'select',
-      options: [
-        { value: '', label: 'Select' },
-        { value: '0', label: 'Normal' },
-        { value: '1', label: 'ST-T Wave Abnormality' },
-        { value: '2', label: 'Left Ventricular Hypertrophy' }
-      ]
-    },
-    { name: 'thalach', label: 'Max Heart Rate', type: 'number', placeholder: 'bpm', min: 60, max: 220 },
-    { 
-      name: 'exang', label: 'Exercise Induced Angina', type: 'select',
-      options: [{ value: '', label: 'Select' }, { value: '0', label: 'No' }, { value: '1', label: 'Yes' }]
-    },
-    { name: 'oldpeak', label: 'ST Depression', type: 'number', placeholder: 'Value', step: '0.1', min: 0, max: 7 },
-    { 
-      name: 'slope', label: 'Slope of ST Segment', type: 'select',
-      options: [
-        { value: '', label: 'Select' },
-        { value: '0', label: 'Upsloping' },
-        { value: '1', label: 'Flat' },
-        { value: '2', label: 'Downsloping' }
-      ]
-    },
-    { 
-      name: 'ca', label: 'Major Vessels Colored', type: 'select',
-      options: [
-        { value: '', label: 'Select' },
-        { value: '0', label: '0' },
-        { value: '1', label: '1' },
-        { value: '2', label: '2' },
-        { value: '3', label: '3' }
-      ]
-    },
-    { 
-      name: 'thal', label: 'Thalassemia', type: 'select',
-      options: [
-        { value: '', label: 'Select' },
-        { value: '0', label: 'Normal' },
-        { value: '1', label: 'Fixed Defect' },
-        { value: '2', label: 'Reversible Defect' },
-        { value: '3', label: 'Unknown' }
-      ]
-    }
-  ];
-
-  const getRiskColor = (level) => {
-    switch (level) {
-      case 'High': return 'text-red-600 bg-red-100 dark:bg-red-900/30';
-      case 'Moderate': return 'text-amber-600 bg-amber-100 dark:bg-amber-900/30';
-      case 'Low': return 'text-emerald-600 bg-emerald-100 dark:bg-emerald-900/30';
-      default: return 'text-gray-600 bg-gray-100';
-    }
-  };
-
   return (
-    <div className="space-y-6 animate-fade-in max-w-6xl mx-auto">
-      <div>
-        <h1 className="page-title flex items-center gap-3">
-          <HeartPulse className="text-red-500" />
-          Heart Health Check
-        </h1>
-        <p className="page-subtitle">
-          Assess your cardiovascular health risk using AI-powered analysis.
-        </p>
-      </div>
+    <div className="space-y-5">
+      <PageHeader
+        eyebrow="Screening"
+        title="Heart health check"
+        description="Thirteen clinical metrics, one risk read-out. Values come from routine cardiac workups."
+      />
 
-      <Disclaimer message="This heart health risk assessment is for informational and educational insights only. It should not be used as a diagnosis or replace consultation with a cardiologist or professional medical advisor." />
+      <Reveal>
+        <Disclaimer message="Risk screening for information only — not a diagnosis. Discuss results with a cardiologist before acting on them." />
+      </Reveal>
 
-      <div className="grid lg:grid-cols-3 gap-6">
-        <div className="lg:col-span-2">
-          <div className="card">
-            <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-6 flex items-center gap-2">
-              <Activity size={20} className="text-blue-600" />
-              Enter Your Health Metrics
-            </h3>
-
-            <form onSubmit={handleSubmit} className="space-y-6">
-              <div className="grid md:grid-cols-2 gap-4">
-                {formFields.map((field) => (
-                  <div key={field.name}>
-                    <label className="input-label">{field.label}</label>
-                    {field.type === 'select' ? (
-                      <select
-                        name={field.name}
-                        value={formData[field.name]}
-                        onChange={handleChange}
-                        className="select-field"
-                      >
-                        {field.options.map((opt) => (
-                          <option key={opt.value} value={opt.value}>{opt.label}</option>
-                        ))}
-                      </select>
-                    ) : (
-                      <input
-                        type={field.type}
-                        name={field.name}
-                        value={formData[field.name]}
-                        onChange={handleChange}
-                        placeholder={field.placeholder}
-                        min={field.min}
-                        max={field.max}
-                        step={field.step}
-                        className="input-field"
-                      />
-                    )}
-                  </div>
-                ))}
-              </div>
-
-              {error && (
-                <div className="alert-error">
-                  <AlertCircle size={18} />
-                  <span>{error}</span>
-                </div>
-              )}
-
-              <button
-                type="submit"
-                disabled={isLoading}
-                className="btn-primary w-full py-3"
-              >
-                {isLoading ? (
-                  <>
-                    <Loader2 className="animate-spin" size={20} />
-                    Analyzing...
-                  </>
-                ) : (
-                  <>
-                    <HeartPulse size={20} />
-                    Analyze Heart Health
-                  </>
-                )}
-              </button>
-            </form>
-          </div>
-        </div>
-
-       
-        <div className="space-y-4">
-          {result ? (
-            <div className="card animate-scale-in">
-              <div className="flex items-center gap-2 mb-4">
-                <CheckCircle className="text-emerald-600" size={24} />
-                <h3 className="font-semibold text-gray-900 dark:text-white">Analysis Result</h3>
-              </div>
-
-              <div className="space-y-4">
-               
-                <div className="text-center p-6 rounded-xl bg-gray-50 dark:bg-gray-800">
-                  <p className="text-sm text-gray-500 dark:text-gray-400 mb-2">Risk Level</p>
-                  <span className={`inline-block px-4 py-2 rounded-full text-lg font-bold ${getRiskColor(result.risk_level)}`}>
-                    {result.risk_level} Risk
-                  </span>
-                </div>
-
-               
-                <div>
-                  <div className="flex justify-between text-sm mb-1">
-                    <span className="text-gray-500 dark:text-gray-400">Risk Probability</span>
-                    <span className="font-medium">{(result.probability * 100).toFixed(1)}%</span>
-                  </div>
-                  <div className="progress-bar">
-                    <div 
-                      className="progress-bar-fill"
-                      style={{ 
-                        width: `${result.probability * 100}%`,
-                        background: result.probability > 0.7 ? 'linear-gradient(90deg, #ef4444, #dc2626)' :
-                                   result.probability > 0.4 ? 'linear-gradient(90deg, #f59e0b, #d97706)' :
-                                   'linear-gradient(90deg, #10b981, #059669)'
-                      }}
-                    />
-                  </div>
-                </div>
-
-               
-                {result.recommendation && (
-                  <div className={`p-4 rounded-xl ${
-                    result.recommendation.level === 'critical' ? 'bg-red-50 dark:bg-red-900/20' :
-                    result.recommendation.level === 'warning' ? 'bg-amber-50 dark:bg-amber-900/20' :
-                    'bg-emerald-50 dark:bg-emerald-900/20'
-                  }`}>
-                    <p className={`font-medium mb-2 ${
-                      result.recommendation.level === 'critical' ? 'text-red-700 dark:text-red-400' :
-                      result.recommendation.level === 'warning' ? 'text-amber-700 dark:text-amber-400' :
-                      'text-emerald-700 dark:text-emerald-400'
-                    }`}>
-                      {result.recommendation.message}
-                    </p>
-                    <ul className="space-y-1 mt-3">
-                      {result.recommendation.actions.map((action, index) => (
-                        <li key={index} className="flex items-start gap-2 text-sm text-gray-600 dark:text-gray-400">
-                          <span className="text-blue-600">•</span>
-                          {action}
-                        </li>
-                      ))}
-                    </ul>
-                  </div>
-                )}
-              </div>
-            </div>
-          ) : (
-            <div className="card">
-              <h3 className="font-semibold text-gray-900 dark:text-white mb-4 flex items-center gap-2">
-                <Info size={20} className="text-blue-600" />
-                How It Works
+      <div className="grid items-start gap-5 lg:grid-cols-12">
+        <Reveal delay={0.05} className="lg:col-span-7">
+          <form onSubmit={handleSubmit} className="panel p-5 sm:p-6">
+            <div className="mb-4 flex items-center justify-between">
+              <h3 className="flex items-center gap-2 text-base font-semibold text-ink">
+                <Activity size={16} className="text-muted" /> Health metrics
               </h3>
-              <div className="space-y-4 text-sm text-gray-600 dark:text-gray-400">
-                <div className="flex items-start gap-3">
-                  <div className="w-8 h-8 bg-blue-100 dark:bg-blue-900/30 rounded-full flex items-center justify-center flex-shrink-0">
-                    <span className="text-blue-600 font-bold text-sm">1</span>
-                  </div>
-                  <p>Enter your health metrics and medical test results</p>
-                </div>
-                <div className="flex items-start gap-3">
-                  <div className="w-8 h-8 bg-blue-100 dark:bg-blue-900/30 rounded-full flex items-center justify-center flex-shrink-0">
-                    <span className="text-blue-600 font-bold text-sm">2</span>
-                  </div>
-                  <p>Our AI analyzes your data using trained models</p>
-                </div>
-                <div className="flex items-start gap-3">
-                  <div className="w-8 h-8 bg-blue-100 dark:bg-blue-900/30 rounded-full flex items-center justify-center flex-shrink-0">
-                    <span className="text-blue-600 font-bold text-sm">3</span>
-                  </div>
-                  <p>Get personalized risk assessment and recommendations</p>
-                </div>
-              </div>
+              <span className="t-num text-[13px] text-faint">{filled}/{FIELDS.length} filled</span>
             </div>
-          )}
+            <div className="grid gap-3 sm:grid-cols-2">
+              {FIELDS.map((f) =>
+                f.kind === 'select' ? (
+                  <SelectField
+                    key={f.name}
+                    label={f.label}
+                    value={form[f.name]}
+                    options={f.options}
+                    onChange={(e) => {
+                      setForm({ ...form, [f.name]: e.target.value });
+                      setError(null);
+                    }}
+                  />
+                ) : (
+                  <TextField
+                    key={f.name}
+                    label={f.label}
+                    type="number"
+                    placeholder={f.placeholder}
+                    min={f.min}
+                    max={f.max}
+                    step={f.step}
+                    value={form[f.name]}
+                    onChange={(e) => {
+                      setForm({ ...form, [f.name]: e.target.value });
+                      setError(null);
+                    }}
+                  />
+                ),
+              )}
+            </div>
 
-          
-          <div className="card bg-gradient-to-br from-red-50 to-pink-50 dark:from-red-900/20 dark:to-pink-900/20 border-red-100 dark:border-red-800">
-            <div className="flex items-center gap-3 mb-3">
-              <Shield className="text-red-600" size={20} />
-              <span className="font-medium text-gray-900 dark:text-white">Heart Health Tips</span>
+            <AnimatePresence>
+              {error && (
+                <Motion.div
+                  initial={{ opacity: 0, height: 0 }}
+                  animate={{ opacity: 1, height: 'auto' }}
+                  exit={{ opacity: 0, height: 0 }}
+                  className="overflow-hidden"
+                >
+                  <div className="mt-4 flex items-start gap-2.5 rounded-xl bg-critical/[0.07] px-3.5 py-3">
+                    <CircleAlert size={16} className="mt-px shrink-0 text-critical" />
+                    <p className="text-sm font-medium leading-relaxed text-critical">{error}</p>
+                  </div>
+                </Motion.div>
+              )}
+            </AnimatePresence>
+
+            <button type="submit" disabled={isLoading} className="btn-accent mt-4 w-full py-3">
+              {isLoading ? (
+                <><Loader2 size={17} className="animate-spin" /> Analyzing…</>
+              ) : (
+                <><HeartPulse size={17} /> Assess risk</>
+              )}
+            </button>
+
+            <div className="mt-4 flex items-start gap-2.5 rounded-xl border border-line bg-paper px-4 py-3">
+              <Activity size={15} className="mt-0.5 shrink-0 text-faint" />
+              <p className="text-sm leading-relaxed text-muted">
+                Thirteen metrics from a routine cardiac workup — the model estimates your
+                cardiovascular risk and suggests sensible next steps.
+              </p>
             </div>
-            <ul className="space-y-2 text-sm text-gray-600 dark:text-gray-400">
-              <li>• Exercise for 30 minutes daily</li>
-              <li>• Maintain a heart-healthy diet</li>
-              <li>• Monitor blood pressure regularly</li>
-              <li>• Avoid smoking and limit alcohol</li>
-              <li>• Manage stress effectively</li>
-            </ul>
-          </div>
+          </form>
+        </Reveal>
+
+        {/* sticky result rail */}
+        <div className="lg:col-span-5" id="heart-result" style={{ scrollMarginTop: 90 }}>
+          <Reveal delay={0.1}>
+            <div className="panel overflow-hidden lg:sticky lg:top-24">
+              <AnimatePresence mode="wait" initial={false}>
+                {isLoading ? (
+                  <Motion.div key="l" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="p-6">
+                    <div className="flex items-center gap-4">
+                      <div className="flex-1 space-y-3">
+                        <div className="skeleton h-3 w-24 rounded-full" />
+                        <div className="skeleton h-6 w-2/3 rounded-lg" />
+                      </div>
+                      <div className="skeleton h-20 w-20 rounded-full" />
+                    </div>
+                    <p className="mt-4 flex items-center gap-2 text-sm text-muted">
+                      <Loader2 size={14} className="animate-spin text-accent" /> Scoring cardiovascular risk…
+                    </p>
+                  </Motion.div>
+                ) : result ? (
+                  <Motion.div
+                    key="r"
+                    initial={{ opacity: 0, y: 10 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ duration: 0.3, ease: easeOut }}
+                  >
+                    <ScreeningResultView kind="heart" result={result} />
+                  </Motion.div>
+                ) : (
+                  <Motion.div key="e" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
+                    <EmptyState
+                      icon={HeartPulse}
+                      title="Awaiting your metrics"
+                      hint="Complete the form and your risk read-out with tailored guidance appears here."
+                    />
+                    <div className="border-t border-line bg-paper/60 p-5">
+                      <p className="eyebrow mb-3">Your result will include</p>
+                      <ul className="space-y-2.5">
+                        {[
+                          'Risk level — low, moderate or high',
+                          'A probability score for the prediction',
+                          'Tailored next steps for your profile',
+                        ].map((t) => (
+                          <li key={t} className="flex items-center gap-2.5 text-sm text-muted">
+                            <span className="dot !bg-accent" /> {t}
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  </Motion.div>
+                )}
+              </AnimatePresence>
+            </div>
+          </Reveal>
         </div>
       </div>
     </div>
   );
 }
-
-export default HeartCheck;

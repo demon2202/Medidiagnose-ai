@@ -28,7 +28,7 @@
     "roc_auc": 1.0,
     "f1_score": 1.0,
     "mcc": 1.0,
-    "prob_min": 0.011957337547753629,
+    "prob_min": 0.012224004214420294,
     "prob_max": 0.9952950355477507
   },
   "Calibrated Ensemble": {
@@ -36,18 +36,26 @@
     "roc_auc": 1.0,
     "f1_score": 1.0,
     "mcc": 1.0,
-    "prob_min": 0.012865760273307396,
-    "prob_max": 0.988389883117673
+    "prob_min": 0.012299124886545061,
+    "prob_max": 0.9887923164424256
   },
   "Calibrated Ensemble CV": {
     "accuracy": 1.0,
     "roc_auc": 1.0,
     "f1_score": 1.0,
     "mcc": 1.0,
-    "prob_min": 0.018262990345943832,
-    "prob_max": 0.9834491849847236
+    "prob_min": 0.017996811693029753,
+    "prob_max": 0.9835929473369898
   },
   "best_model": "Logistic Regression",
   "cv_mean_auc": 1.0,
+  "cv_std_auc": 0.0,
+  "cv_folds": [
+    1.0,
+    1.0,
+    1.0,
+    1.0,
+    1.0
+  ],
   "calibrated": false
 }

@@ -1,0 +1,25 @@
+{
+  "model_type": "VotingClassifier(RF+ET+GB+HGB+LR) + SMOTE",
+  "feature_order": [
+    "age",
+    "sex",
+    "cp",
+    "trestbps",
+    "chol",
+    "fbs",
+    "restecg",
+    "thalach",
+    "exang",
+    "oldpeak",
+    "slope",
+    "ca",
+    "thal"
+  ],
+  "accuracy": 0.7540983606557377,
+  "f1_disease": 0.7692307692307693,
+  "roc_auc": 0.8484848484848485,
+  "cv_accuracy_mean": 0.8181420765027323,
+  "cv_accuracy_std": 0.04584357503677098,
+  "n_samples": 302,
+  "compatible_with": "server.py /predict-heart endpoint"
+}

@@ -1,220 +1,174 @@
 import React, { useState, useRef, useCallback, useEffect } from 'react';
 import axios from 'axios';
+import { motion as Motion, AnimatePresence } from 'framer-motion';
 import {
   Upload,
-  Image as ImageIcon,
   X,
   Loader2,
-  AlertCircle,
-  CheckCircle,
-  Camera,
-  Info,
-  AlertTriangle,
+  CheckCircle2,
+  TriangleAlert,
   Heart,
   Activity,
   Microscope,
-  Stethoscope,
-  Clock,
-  Shield,
-  ChevronRight,
-  XCircle,
-  Pill,
-  FileText,
-  BarChart3,
-  TrendingUp,
-  FileUp
+  ScanLine,
+  ShieldCheck,
+  FileUp,
+  ClipboardList,
+  ScanSearch,
+  RotateCcw,
+  FileImage,
+  Maximize2,
+  CircleAlert
 } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import { config } from '../config/config';
+import { scrollToId } from '../lib/scroll';
+import { cleanResult } from '../lib/text';
 import Disclaimer from '../components/common/Disclaimer';
+import ImageResultView from '../components/results/ImageResultView';
+import {
+  PageHeader,
+  EmptyState,
+  Reveal
+} from '../components/ui/ui';
+import { easeOut } from '../lib/motion';
 
-function ImageAnalysis() {
+const ANALYSIS_TYPES = [
+  {
+    id: 'skin',
+    label: 'Skin',
+    title: 'Skin lesion',
+    description: 'Melanoma and skin condition screening from photographs.',
+    icon: Microscope,
+    accepts: 'Color photos of lesions, moles or spots',
+    acceptsSignal: false,
+    fileAccept: 'image/*'
+  },
+  {
+    id: 'breast',
+    label: 'Breast',
+    title: 'Breast imaging',
+    description: 'Mammogram and ultrasound screening support.',
+    icon: Activity,
+    accepts: 'Grayscale mammograms or ultrasounds',
+    acceptsSignal: false,
+    fileAccept: 'image/*'
+  },
+  {
+    id: 'heart',
+    label: 'Heart',
+    title: 'Cardiac',
+    description: 'ECG printouts or raw signal files (.dat, .hea, .csv).',
+    icon: Heart,
+    accepts: 'ECG images or signal files',
+    acceptsSignal: true,
+    fileAccept: 'image/*,.dat,.hea,.csv,.edf,.mat'
+  },
+  {
+    id: 'xray',
+    label: 'Chest X-ray',
+    title: 'Chest X-ray',
+    description: 'Pneumonia and lung condition screening.',
+    icon: ScanLine,
+    accepts: 'Grayscale chest X-rays',
+    acceptsSignal: false,
+    fileAccept: 'image/*'
+  },
+];
+
+const extOf = (name = '') => name.split('.').pop().toLowerCase();
+const isSignalFile = (file) => ['dat', 'hea', 'csv', 'edf', 'mat'].includes(extOf(file.name));
+const isImageFile = (file) =>
+  file.type.startsWith('image/') ||
+  ['jpg', 'jpeg', 'png', 'gif', 'bmp', 'webp', 'tiff'].includes(extOf(file.name));
+
+const fmtSize = (bytes) =>
+  bytes > 1048576 ? `${(bytes / 1048576).toFixed(2)} MB` : `${(bytes / 1024).toFixed(1)} KB`;
+
+export default function ImageAnalysis() {
   const { addToHistory, isLoading, setIsLoading, showNotification } = useApp();
 
   const [selectedFile, setSelectedFile] = useState(null);
   const [preview, setPreview] = useState(null);
+  const [lightbox, setLightbox] = useState(false);
   const [analysisType, setAnalysisType] = useState('skin');
   const [result, setResult] = useState(null);
   const [error, setError] = useState(null);
   const [validationError, setValidationError] = useState(null);
   const [isDragging, setIsDragging] = useState(false);
-  const [fileType, setFileType] = useState('image'); // 'image' or 'signal'
-  const [heaFile, setHeaFile] = useState(null); // companion .hea file for .dat ECG files
+  const [fileType, setFileType] = useState('image');
+  const [heaFile, setHeaFile] = useState(null);
   const fileInputRef = useRef(null);
   const heaFileInputRef = useRef(null);
 
-  // Cleanup blob URLs on unmount or preview change
-  useEffect(() => {
-    return () => {
-      if (preview && preview.startsWith('blob:')) {
-        URL.revokeObjectURL(preview);
-      }
-    };
-  }, [preview]);
+  const current = ANALYSIS_TYPES.find((t) => t.id === analysisType);
 
-  const analysisTypes = [
-    {
-      id: 'skin',
-      title: 'Skin Cancer Analysis',
-      description: 'Detect skin cancer, melanoma, and other skin conditions',
-      icon: Microscope,
-      color: 'from-purple-500 to-purple-600',
-      accepts: 'Photos of skin lesions, moles, or suspicious spots',
-      expectedType: 'Color photograph of skin',
-      imageType: 'color',
-      acceptsSignal: false,
-      fileAccept: 'image/*'
+  useEffect(
+    () => () => {
+      if (preview?.startsWith('blob:')) URL.revokeObjectURL(preview);
     },
-    {
-      id: 'breast',
-      title: 'Breast Cancer Screening',
-      description: 'Analyze mammograms and breast ultrasounds',
-      icon: Activity,
-      color: 'from-pink-500 to-rose-600',
-      accepts: 'Mammogram images, breast ultrasound images',
-      expectedType: 'Grayscale mammogram or ultrasound',
-      imageType: 'grayscale',
-      acceptsSignal: false,
-      fileAccept: 'image/*'
-    },
-    {
-      id: 'heart',
-      title: 'Heart Condition Analysis',
-      description: 'Detect heart conditions from ECG images OR signal files (.dat, .csv)',
-      icon: Heart,
-      color: 'from-red-500 to-red-600',
-      accepts: 'ECG printouts, echocardiogram images, OR signal files (.dat, .hea, .csv)',
-      expectedType: 'ECG/EKG printout, scan, or signal data file',
-      imageType: 'grayscale',
-      acceptsSignal: true,
-      fileAccept: 'image/*,.dat,.hea,.csv,.edf,.mat'
-    },
-    {
-      id: 'xray',
-      title: 'Chest X-Ray Analysis',
-      description: 'Detect pneumonia and lung conditions',
-      icon: Stethoscope,
-      color: 'from-blue-500 to-blue-600',
-      accepts: 'Chest X-ray images',
-      expectedType: 'Grayscale chest X-ray',
-      imageType: 'grayscale',
-      acceptsSignal: false,
-      fileAccept: 'image/*'
-    }
-  ];
+    [preview],
+  );
 
-  // ================================================================
-  //                    FILE HANDLING
-  // ================================================================
+  /* ---------------- file handling (logic preserved) ---------------- */
 
-  const getFileExtension = (filename) => {
-    return filename.split('.').pop().toLowerCase();
-  };
-
-  const isSignalFile = (file) => {
-    const ext = getFileExtension(file.name);
-    return ['dat', 'hea', 'csv', 'edf', 'mat'].includes(ext);
-  };
-
-  const isImageFile = (file) => {
-    return file.type.startsWith('image/') ||
-      ['jpg', 'jpeg', 'png', 'gif', 'bmp', 'webp', 'tiff'].includes(getFileExtension(file.name));
-  };
-
-  const handleFileSelect = useCallback((e) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
-    const currentType = analysisTypes.find(t => t.id === analysisType);
-    const ext = getFileExtension(file.name);
-
-    // Check if it's a signal file
-    if (isSignalFile(file)) {
-      if (!currentType?.acceptsSignal) {
-        setError(`Signal files (.${ext}) are only supported for Heart Condition Analysis. Please select an image file.`);
-        showNotification('Wrong file type for this analysis', 'error');
-        return;
-      }
-
-      if (file.size > config.upload.maxFileSize) {
-        setError(`File size must be less than ${config.upload.maxFileSize / 1024 / 1024}MB`);
-        showNotification('File too large', 'error');
-        return;
-      }
-
-      // Revoke old preview
-      if (preview && preview.startsWith('blob:')) {
-        URL.revokeObjectURL(preview);
-      }
-
-      setSelectedFile(file);
-      setPreview(null); // No preview for signal files
-      setFileType('signal');
-      setError(null);
-      setResult(null);
-      setValidationError(null);
-      showNotification(`ECG signal file "${file.name}" loaded`, 'success');
-      return;
-    }
-
-    // Image file validation
-    if (!isImageFile(file)) {
-      if (currentType?.acceptsSignal) {
-        setError(`Please select an image file (PNG, JPG) or ECG signal file (.dat, .hea, .csv)`);
-      } else {
-        setError('Please select a valid image file (PNG, JPG, etc.)');
-      }
-      showNotification('Invalid file type', 'error');
-      return;
-    }
-
-    if (file.size > config.upload.maxFileSize) {
-      setError(`File size must be less than ${config.upload.maxFileSize / 1024 / 1024}MB`);
-      showNotification('File too large', 'error');
-      return;
-    }
-
-    // Revoke old preview
-    if (preview && preview.startsWith('blob:')) {
-      URL.revokeObjectURL(preview);
-    }
-
-    setSelectedFile(file);
-    setPreview(URL.createObjectURL(file));
-    setFileType('image');
+  const resetMessages = () => {
     setError(null);
     setResult(null);
     setValidationError(null);
-  }, [showNotification, preview, analysisType]);
+  };
 
-  const handleDrop = useCallback((e) => {
-    e.preventDefault();
-    setIsDragging(false);
+  const handleFileSelect = useCallback(
+    (e) => {
+      const file = e.target.files?.[0];
+      if (!file) return;
 
-    const file = e.dataTransfer.files?.[0];
-    if (!file) return;
+      if (isSignalFile(file)) {
+        if (!current?.acceptsSignal) {
+          setError(`Signal files (.${extOf(file.name)}) are only supported for cardiac analysis.`);
+          showNotification('Wrong file type for this analysis', 'error');
+          return;
+        }
+        if (file.size > config.upload.maxFileSize) {
+          setError(`File must be under ${config.upload.maxFileSize / 1048576} MB.`);
+          showNotification('File too large', 'error');
+          return;
+        }
+        if (preview?.startsWith('blob:')) URL.revokeObjectURL(preview);
+        setSelectedFile(file);
+        setPreview(null);
+        setFileType('signal');
+        resetMessages();
+        showNotification(`Signal file "${file.name}" loaded`, 'success');
+        return;
+      }
 
-    // Create a synthetic event to reuse handleFileSelect logic
-    const syntheticEvent = {
-      target: { files: [file] }
-    };
-    handleFileSelect(syntheticEvent);
-  }, [handleFileSelect]);
-
-  const handleDragOver = useCallback((e) => {
-    e.preventDefault();
-    setIsDragging(true);
-  }, []);
-
-  const handleDragLeave = useCallback((e) => {
-    e.preventDefault();
-    setIsDragging(false);
-  }, []);
+      if (!isImageFile(file)) {
+        setError(
+          current?.acceptsSignal
+            ? 'Select an image (PNG, JPG) or an ECG signal file (.dat, .hea, .csv).'
+            : 'Select a valid image file (PNG, JPG).',
+        );
+        showNotification('Invalid file type', 'error');
+        return;
+      }
+      if (file.size > config.upload.maxFileSize) {
+        setError(`File must be under ${config.upload.maxFileSize / 1048576} MB.`);
+        showNotification('File too large', 'error');
+        return;
+      }
+      if (preview?.startsWith('blob:')) URL.revokeObjectURL(preview);
+      setSelectedFile(file);
+      setPreview(URL.createObjectURL(file));
+      setFileType('image');
+      resetMessages();
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [showNotification, preview, analysisType],
+  );
 
   const clearSelection = useCallback(() => {
-    if (preview && preview.startsWith('blob:')) {
-      URL.revokeObjectURL(preview);
-    }
+    if (preview?.startsWith('blob:')) URL.revokeObjectURL(preview);
     setSelectedFile(null);
     setPreview(null);
     setFileType('image');
@@ -226,32 +180,51 @@ function ImageAnalysis() {
     if (heaFileInputRef.current) heaFileInputRef.current.value = '';
   }, [preview]);
 
-  // ================================================================
-  //                    ANALYSIS HANDLER
-  // ================================================================
+  /* ---------------- analysis (logic preserved) ---------------- */
+
+  const normalizeResult = (data) => {
+    const out = { ...data };
+    const norm = (p) => {
+      const c = { ...p };
+      let conf = c.confidence;
+      if (typeof conf === 'string') {
+        conf = parseFloat(conf.replace('%', ''));
+        if (!Number.isNaN(conf) && conf > 1) conf /= 100;
+      }
+      if (typeof conf !== 'number' || Number.isNaN(conf)) conf = 0;
+      c.confidence = Math.max(0, Math.min(1, conf));
+      return c;
+    };
+    if (out.prediction) {
+      out.prediction = norm(out.prediction);
+      if (!out.prediction.name) out.prediction.name = 'Unknown condition';
+    }
+    if (Array.isArray(out.all_predictions)) {
+      out.all_predictions = out.all_predictions.map((p) => ({
+        ...norm(p),
+        name: p.name || 'Unknown'
+      }));
+    }
+    if (!out.severity) out.severity = 'low';
+    return out;
+  };
 
   const handleAnalyze = async () => {
     if (!selectedFile) {
-      setError('Please select an image or signal file first');
+      setError('Select a file first.');
       showNotification('No file selected', 'error');
       return;
     }
-
     setIsLoading(true);
     setError(null);
     setResult(null);
     setValidationError(null);
 
     const formData = new FormData();
-
-    // For signal files, use different form field and endpoint
     if (fileType === 'signal') {
       formData.append('signal_file', selectedFile);
       formData.append('file_type', 'signal');
-      // Attach companion .hea header file if provided (required for .dat PTB-XL files)
-      if (heaFile) {
-        formData.append('hea_file', heaFile);
-      }
+      if (heaFile) formData.append('hea_file', heaFile);
     } else {
       formData.append('image', selectedFile);
       formData.append('file_type', 'image');
@@ -269,40 +242,34 @@ function ImageAnalysis() {
         headers: { 'Content-Type': 'multipart/form-data' },
         timeout: config.api.timeout
       });
-
       const data = response.data;
-
       if (data.success) {
-        const normalizedResult = normalizeResult(data);
-        setResult(normalizedResult);
-
+        const normalized = normalizeResult(cleanResult(data));
+        setResult(normalized);
         addToHistory({
           type: `image_${analysisType}`,
-          prediction: normalizedResult.prediction?.name || 'Unknown',
-          confidence: normalizedResult.prediction?.confidence || 0,
-          severity: normalizedResult.severity || 'unknown',
-          fileType: fileType,
+          prediction: normalized.prediction?.name || 'Unknown',
+          confidence: normalized.prediction?.confidence || 0,
+          severity: normalized.severity || 'unknown',
+          fileType,
           fileName: selectedFile.name,
+          data: normalized,
           timestamp: new Date().toISOString()
         });
-
-        showNotification('Analysis complete!', 'success');
+        showNotification('Analysis complete', 'success');
+        requestAnimationFrame(() => scrollToId('analysis-result'));
+      } else if (data.validation_error) {
+        setValidationError({
+          message: data.message,
+          suggestion: data.suggestion,
+          expectedType: data.expected_type
+        });
+        showNotification('Wrong file type detected', 'error');
       } else {
-        if (data.validation_error) {
-          setValidationError({
-            message: data.message,
-            suggestion: data.suggestion,
-            expectedType: data.expected_type
-          });
-          showNotification('Wrong file type detected', 'error');
-        } else {
-          setError(data.error || data.message || 'Analysis failed');
-          showNotification('Analysis failed', 'error');
-        }
+        setError(data.error || data.message || 'Analysis failed');
+        showNotification('Analysis failed', 'error');
       }
     } catch (err) {
-      console.error('Analysis error:', err);
-
       if (err.response?.status === 400 && err.response?.data?.validation_error) {
         setValidationError({
           message: err.response.data.message,
@@ -311,15 +278,15 @@ function ImageAnalysis() {
         });
         showNotification('Wrong file type', 'error');
       } else if (err.response?.data?.error) {
-        const errMsg = err.response.data.error;
-        const suggestion = err.response.data.suggestion;
-        setError(suggestion ? `${errMsg} — ${suggestion}` : errMsg);
+        const msg = err.response.data.error;
+        const sug = err.response.data.suggestion;
+        setError(sug ? `${msg} — ${sug}` : msg);
         showNotification('Analysis error', 'error');
       } else if (err.code === 'ECONNABORTED') {
-        setError('Request timeout. The server took too long to respond.');
+        setError('Request timed out. The server took too long to respond.');
         showNotification('Request timeout', 'error');
       } else {
-        setError(`Failed to connect to server. Ensure backend is running on ${config.api.baseURL}`);
+        setError(`Could not reach the server. Is the backend running on ${config.api.baseURL}?`);
         showNotification('Connection failed', 'error');
       }
     } finally {
@@ -327,437 +294,398 @@ function ImageAnalysis() {
     }
   };
 
-  // ================================================================
-  //                    DATA NORMALIZATION
-  // ================================================================
-
-  const normalizeResult = (data) => {
-    const result = { ...data };
-
-    if (result.prediction) {
-      result.prediction = { ...result.prediction };
-      let conf = result.prediction.confidence;
-      if (typeof conf === 'string') {
-        conf = parseFloat(conf.replace('%', ''));
-        if (!isNaN(conf) && conf > 1) conf = conf / 100;
-      }
-      if (typeof conf !== 'number' || isNaN(conf)) conf = 0;
-      conf = Math.max(0, Math.min(1, conf));
-      result.prediction.confidence = conf;
-      result.prediction.confidence_percent = `${(conf * 100).toFixed(1)}%`;
-      if (!result.prediction.name) result.prediction.name = 'Unknown Condition';
-    }
-
-    if (result.all_predictions && Array.isArray(result.all_predictions)) {
-      result.all_predictions = result.all_predictions.map(pred => {
-        const p = { ...pred };
-        let c = p.confidence;
-        if (typeof c === 'string') {
-          c = parseFloat(c.replace('%', ''));
-          if (!isNaN(c) && c > 1) c = c / 100;
-        }
-        if (typeof c !== 'number' || isNaN(c)) c = 0;
-        c = Math.max(0, Math.min(1, c));
-        p.confidence = c;
-        p.confidence_percent = `${(c * 100).toFixed(1)}%`;
-        if (!p.name) p.name = 'Unknown';
-        return p;
-      });
-    }
-
-    if (!result.severity) result.severity = 'low';
-    return result;
+  const switchType = (id) => {
+    setAnalysisType(id);
+    setResult(null);
+    setError(null);
+    setValidationError(null);
   };
 
-  // ================================================================
-  //                    STYLING HELPERS
-  // ================================================================
+  /* ---------------- result fragments ---------------- */
 
-  const getSeverityStyles = (severity) => {
-    const styles = {
-      critical: { bg: 'bg-red-50 dark:bg-red-900/30', text: 'text-red-700 dark:text-red-400', border: 'border-red-300 dark:border-red-800', badge: 'bg-red-500 text-white', progressBar: 'bg-gradient-to-r from-red-500 to-red-600', glow: 'shadow-lg shadow-red-100 dark:shadow-red-900/30' },
-      high: { bg: 'bg-orange-50 dark:bg-orange-900/30', text: 'text-orange-700 dark:text-orange-400', border: 'border-orange-300 dark:border-orange-800', badge: 'bg-orange-500 text-white', progressBar: 'bg-gradient-to-r from-orange-500 to-orange-600', glow: 'shadow-lg shadow-orange-100 dark:shadow-orange-900/30' },
-      moderate: { bg: 'bg-yellow-50 dark:bg-yellow-900/30', text: 'text-yellow-700 dark:text-yellow-400', border: 'border-yellow-300 dark:border-yellow-800', badge: 'bg-yellow-500 text-white', progressBar: 'bg-gradient-to-r from-yellow-500 to-yellow-600', glow: 'shadow-lg shadow-yellow-100 dark:shadow-yellow-900/30' },
-      low: { bg: 'bg-green-50 dark:bg-green-900/30', text: 'text-green-700 dark:text-green-400', border: 'border-green-300 dark:border-green-800', badge: 'bg-green-500 text-white', progressBar: 'bg-gradient-to-r from-green-500 to-green-600', glow: 'shadow-lg shadow-green-100 dark:shadow-green-900/30' },
-      healthy: { bg: 'bg-blue-50 dark:bg-blue-900/30', text: 'text-blue-700 dark:text-blue-400', border: 'border-blue-300 dark:border-blue-800', badge: 'bg-blue-500 text-white', progressBar: 'bg-gradient-to-r from-blue-500 to-blue-600', glow: 'shadow-lg shadow-blue-100 dark:shadow-blue-900/30' }
-    };
-    return styles[severity] || styles.low;
-  };
 
-  const getSeverityIcon = (sev) => {
-    if (sev === 'critical' || sev === 'high') return <AlertTriangle className="text-red-500" size={24} />;
-    if (sev === 'moderate') return <AlertCircle className="text-yellow-500" size={24} />;
-    if (sev === 'healthy') return <CheckCircle className="text-blue-500" size={24} />;
-    return <CheckCircle className="text-green-500" size={24} />;
-  };
+  return (
+    <div className="space-y-5">
+      <PageHeader
+        eyebrow="Medical imaging"
+        title="Image analysis"
+        description={current.description}
+      />
 
-  const getConfidenceColor = (c) => {
-    if (c >= 0.8) return 'text-green-600 dark:text-green-400';
-    if (c >= 0.6) return 'text-blue-600 dark:text-blue-400';
-    if (c >= 0.4) return 'text-yellow-600 dark:text-yellow-400';
-    return 'text-orange-600 dark:text-orange-400';
-  };
+      <Reveal>
+        <Disclaimer message="Preliminary AI image and signal analysis for information only — not a substitute for clinical judgment. Always confirm with a qualified professional." />
+      </Reveal>
 
-  const getConfidenceLabel = (c) => {
-    if (c >= 0.9) return 'Very High';
-    if (c >= 0.75) return 'High';
-    if (c >= 0.6) return 'Moderate';
-    if (c >= 0.4) return 'Low';
-    return 'Very Low';
-  };
-
-  const getConfidenceBgColor = (c) => {
-    if (c >= 0.8) return 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400';
-    if (c >= 0.6) return 'bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-400';
-    if (c >= 0.4) return 'bg-yellow-100 dark:bg-yellow-900/30 text-yellow-700 dark:text-yellow-400';
-    return 'bg-orange-100 dark:bg-orange-900/30 text-orange-700 dark:text-orange-400';
-  };
-
-  const getUrgencyColor = (color) => {
-    const m = { red: 'bg-red-50 dark:bg-red-900/20 border-red-200 dark:border-red-800 text-red-700 dark:text-red-400', orange: 'bg-orange-50 dark:bg-orange-900/20 border-orange-200 dark:border-orange-800 text-orange-700 dark:text-orange-400', yellow: 'bg-yellow-50 dark:bg-yellow-900/20 border-yellow-200 dark:border-yellow-800 text-yellow-700 dark:text-yellow-400', green: 'bg-green-50 dark:bg-green-900/20 border-green-200 dark:border-green-800 text-green-700 dark:text-green-400', blue: 'bg-blue-50 dark:bg-blue-900/20 border-blue-200 dark:border-blue-800 text-blue-700 dark:text-blue-400' };
-    return m[color] || m.blue;
-  };
-
-  const getRecommendationColor = (level) => {
-    const m = { critical: 'bg-red-50 dark:bg-red-900/20 border-red-200 dark:border-red-800', high: 'bg-orange-50 dark:bg-orange-900/20 border-orange-200 dark:border-orange-800', moderate: 'bg-yellow-50 dark:bg-yellow-900/20 border-yellow-200 dark:border-yellow-800', low: 'bg-green-50 dark:bg-green-900/20 border-green-200 dark:border-green-800', healthy: 'bg-blue-50 dark:bg-blue-900/20 border-blue-200 dark:border-blue-800' };
-    return m[level] || m.low;
-  };
-
-  // ================================================================
-  //                    RESULT COMPONENTS
-  // ================================================================
-
-  const ConfidenceBar = ({ confidence, severity }) => {
-    const styles = getSeverityStyles(severity);
-    const pct = Math.max(0, Math.min(100, (confidence || 0) * 100));
-    return (
-      <div className="mt-5 pt-4 border-t border-gray-200/50 dark:border-gray-700/50">
-        <div className="flex items-center justify-between mb-3">
-          <div className="flex items-center gap-2">
-            <BarChart3 size={16} className={styles.text} />
-            <span className={`text-sm font-semibold ${styles.text}`}>Confidence Level</span>
-          </div>
-          <div className="flex items-center gap-3">
-            <span className={`text-xs font-medium px-2.5 py-1 rounded-full ${getConfidenceBgColor(confidence)}`}>{getConfidenceLabel(confidence)}</span>
-            <span className={`text-xl font-bold ${styles.text}`}>{pct.toFixed(1)}%</span>
-          </div>
-        </div>
-        <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-3.5 overflow-hidden shadow-inner">
-          <div className={`h-full rounded-full transition-all duration-1000 ease-out ${styles.progressBar}`} style={{ width: `${pct}%`, minWidth: pct > 0 ? '12px' : '0px' }} />
-        </div>
-        <div className="flex justify-between mt-1.5 px-0.5">
-          {[0, 25, 50, 75, 100].map(v => <span key={v} className="text-[10px] text-gray-400 dark:text-gray-500 font-medium">{v}%</span>)}
-        </div>
-      </div>
-    );
-  };
-
-  const renderStaging = (s) => { if (!s || typeof s !== 'object') return null; return (<div className="mb-4 p-4 bg-gray-50 dark:bg-gray-800 rounded-xl"><h4 className="font-semibold text-gray-900 dark:text-white mb-3 flex items-center gap-2"><Activity size={18} className="text-blue-500" />Staging Information</h4><div className="space-y-2 text-sm">{s.stage && <div className="flex items-start gap-2"><span className="font-medium text-gray-700 dark:text-gray-300 min-w-[80px]">Stage:</span><span className="text-gray-900 dark:text-white font-semibold">{s.stage}</span></div>}{s.description && <div className="flex items-start gap-2"><span className="font-medium text-gray-700 dark:text-gray-300 min-w-[80px]">Details:</span><span className="text-gray-600 dark:text-gray-400">{s.description}</span></div>}{s.prognosis && <div className="flex items-start gap-2"><span className="font-medium text-gray-700 dark:text-gray-300 min-w-[80px]">Prognosis:</span><span className="text-gray-600 dark:text-gray-400">{s.prognosis}</span></div>}</div></div>); };
-
-  const renderUrgency = (u) => { if (!u || typeof u !== 'object') return null; return (<div className={`mb-4 p-4 rounded-xl border ${getUrgencyColor(u.color)}`}><div className="flex items-center gap-2 mb-1"><Clock size={16} /><span className="font-semibold">{u.timeline || 'N/A'}</span></div><p className="text-sm opacity-90">{u.action || 'N/A'}</p></div>); };
-
-  const renderTreatmentOptions = (t) => { if (!t || !Array.isArray(t) || !t.length) return null; return (<div className="mb-4"><h4 className="font-semibold text-gray-900 dark:text-white mb-3 flex items-center gap-2"><Pill size={18} className="text-green-500" />Treatment Options</h4><ul className="space-y-2">{t.slice(0, 8).map((item, i) => <li key={i} className="flex items-start gap-2 text-sm text-gray-600 dark:text-gray-400"><ChevronRight className="text-blue-500 mt-0.5 flex-shrink-0" size={14} /><span>{item}</span></li>)}</ul></div>); };
-
-  const renderRecommendations = (r) => {
-    if (!r || typeof r !== 'object') return null;
-    return (
-      <div className={`p-4 rounded-xl border ${getRecommendationColor(r.level)}`}>
-        {r.title && <h4 className="font-bold text-gray-900 dark:text-white mb-2 flex items-center gap-2"><Shield size={18} />{r.title}</h4>}
-        {r.message && <p className="text-sm text-gray-700 dark:text-gray-300 mb-3">{r.message}</p>}
-        {r.actions && Array.isArray(r.actions) && <div className="space-y-2"><p className="text-xs font-semibold text-gray-500 dark:text-gray-400 mb-2">Recommended Actions:</p>{r.actions.map((a, i) => <p key={i} className="text-sm flex items-start gap-2 text-gray-600 dark:text-gray-400"><span className="font-bold text-blue-500 min-w-[20px]">{i + 1}.</span><span>{a}</span></p>)}</div>}
-        {r.next_steps && Array.isArray(r.next_steps) && <div className="mt-3 pt-3 border-t border-gray-200 dark:border-gray-700"><p className="text-xs font-semibold text-gray-500 dark:text-gray-400 mb-2">Next Steps:</p>{r.next_steps.map((s, i) => <p key={i} className="text-sm text-gray-600 dark:text-gray-400">• {s}</p>)}</div>}
-        {r.warning_signs && Array.isArray(r.warning_signs) && <div className="mt-3 pt-3 border-t border-red-200 dark:border-red-800"><p className="text-xs font-semibold text-red-600 dark:text-red-400 mb-2">⚠️ Warning Signs:</p>{r.warning_signs.map((s, i) => <p key={i} className="text-sm text-red-600 dark:text-red-400">• {s}</p>)}</div>}
-        {r.risk_factors && Array.isArray(r.risk_factors) && <div className="mt-3 pt-3 border-t border-gray-200 dark:border-gray-700"><p className="text-xs font-semibold text-gray-500 dark:text-gray-400 mb-2">Risk Factors:</p>{r.risk_factors.map((f, i) => <p key={i} className="text-sm text-gray-600 dark:text-gray-400">• {f}</p>)}</div>}
-        {r.note && <div className="mt-3 pt-3 border-t border-gray-200 dark:border-gray-700"><p className="text-xs text-gray-500 dark:text-gray-400"><strong>Note:</strong> {r.note}</p></div>}
-      </div>
-    );
-  };
-
-  const renderAllPredictions = (preds) => {
-    if (!preds || !Array.isArray(preds) || preds.length <= 1) return null;
-    return (
-      <div className="mt-4 pt-4 border-t border-gray-200 dark:border-gray-700">
-        <h4 className="font-semibold text-gray-900 dark:text-white mb-3 text-sm flex items-center gap-2"><TrendingUp size={16} className="text-blue-500" />All Conditions (Ranked)</h4>
-        <div className="space-y-3">
-          {preds.slice(0, 7).map((pred, idx) => {
-            const conf = typeof pred.confidence === 'number' ? pred.confidence : 0;
-            const pct = (conf * 100).toFixed(1);
-            const isTop = idx === 0;
+      {/* models — proper cards, not a text row */}
+      <Reveal delay={0.04}>
+        <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4" role="tablist" aria-label="Analysis model">
+          {ANALYSIS_TYPES.map((t) => {
+            const active = t.id === analysisType;
             return (
-              <div key={idx} className={isTop ? 'bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-3' : ''}>
-                <div className="flex items-center justify-between text-sm mb-1">
-                  <div className="flex items-center gap-2 flex-1 min-w-0">
-                    {isTop && <span className="text-[10px] bg-blue-500 text-white px-1.5 py-0.5 rounded font-bold flex-shrink-0">TOP</span>}
-                    <span className={`truncate ${isTop ? 'font-semibold text-gray-900 dark:text-white' : 'text-gray-600 dark:text-gray-400'}`}>{pred.name || 'Unknown'}</span>
-                    {pred.type && <span className={`text-[10px] px-1.5 py-0.5 rounded-full flex-shrink-0 ${pred.type === 'malignant' ? 'bg-red-100 dark:bg-red-900/30 text-red-600' : pred.type === 'pre-cancerous' ? 'bg-yellow-100 dark:bg-yellow-900/30 text-yellow-600' : pred.type === 'disease' ? 'bg-orange-100 dark:bg-orange-900/30 text-orange-600' : pred.type === 'healthy' ? 'bg-blue-100 dark:bg-blue-900/30 text-blue-600' : 'bg-green-100 dark:bg-green-900/30 text-green-600'}`}>{pred.type}</span>}
-                  </div>
-                  <span className={`font-bold min-w-[55px] text-right ${getConfidenceColor(conf)}`}>{pct}%</span>
-                </div>
-                <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-1.5 overflow-hidden">
-                  <div className={`h-full rounded-full transition-all duration-700 ${isTop ? 'bg-blue-500' : pred.type === 'malignant' ? 'bg-red-400' : pred.type === 'disease' ? 'bg-orange-400' : 'bg-gray-400'}`} style={{ width: `${Math.max(1, parseFloat(pct))}%` }} />
-                </div>
-              </div>
+              <button
+                key={t.id}
+                role="tab"
+                aria-selected={active}
+                onClick={() => switchType(t.id)}
+                className={`group relative flex flex-col items-start gap-3 rounded-2xl border p-5 text-left transition-all duration-200 ${
+                  active
+                    ? 'border-accent bg-accent-soft shadow-soft'
+                    : 'border-line bg-surface hover:-translate-y-0.5 hover:border-faint/70 hover:shadow-soft'
+                }`}
+              >
+                <span className="flex w-full items-center justify-between">
+                  <span
+                    className={`flex h-12 w-12 items-center justify-center rounded-xl border transition-colors ${
+                      active
+                        ? 'border-accent/30 bg-accent/10 text-accent'
+                        : 'border-line bg-paper text-muted group-hover:text-ink'
+                    }`}
+                  >
+                    <t.icon size={22} strokeWidth={1.9} />
+                  </span>
+                  {active && (
+                    <span className="rounded-full bg-accent px-2 py-0.5 text-xs font-bold uppercase tracking-wide text-accent-ink">
+                      Active
+                    </span>
+                  )}
+                </span>
+                <span className="min-w-0">
+                  <span className="block text-[17px] font-semibold leading-tight tracking-tight text-ink">
+                    {t.label}
+                  </span>
+                  <span className="mt-0.5 block text-sm font-medium text-faint">{t.title}</span>
+                  <span className="mt-1.5 block text-[15px] leading-snug text-muted">{t.description}</span>
+                </span>
+              </button>
             );
           })}
         </div>
-      </div>
-    );
-  };
+      </Reveal>
 
-  const currentAnalysisType = analysisTypes.find(t => t.id === analysisType);
-
-  // ================================================================
-  //                    RENDER
-  // ================================================================
-
-  return (
-    <div className="space-y-6 animate-fade-in max-w-7xl mx-auto">
-      <div>
-        <h1 className="page-title"><ImageIcon className="text-purple-500" />Medical Image Analysis</h1>
-        <p className="page-subtitle">Upload medical images or ECG signal files for AI-powered disease detection.</p>
-      </div>
-
-      <Disclaimer message="This AI tool provides preliminary medical image and signal analysis for informational purposes only. It is not a substitute for professional clinical judgment, diagnosis, or treatment. Always consult qualified healthcare professionals before making medical decisions." />
-
-      {/* Analysis Type Selection */}
-      <div className="card">
-        <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">Select Analysis Type</h3>
-        <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-4">
-          {analysisTypes.map((type) => (
-            <button key={type.id} onClick={() => { setAnalysisType(type.id); setResult(null); setError(null); setValidationError(null); }}
-              className={`p-4 rounded-xl border-2 text-left transition-all hover:shadow-md ${analysisType === type.id ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/20 shadow-md ring-2 ring-blue-200 dark:ring-blue-800' : 'border-gray-200 dark:border-gray-700 hover:border-gray-300'}`}>
-              <div className={`w-10 h-10 rounded-lg bg-gradient-to-r ${type.color} flex items-center justify-center mb-3`}>
-                <type.icon className="text-white" size={20} />
-              </div>
-              <h4 className="font-semibold text-gray-900 dark:text-white text-sm mb-1">{type.title}</h4>
-              <p className="text-xs text-gray-500 dark:text-gray-400 mb-2">{type.description}</p>
-              <div className="flex items-center gap-1 text-xs">
-                <span className="font-medium text-blue-600 dark:text-blue-400">Accepts:</span>
-                <span className="text-gray-600 dark:text-gray-400">
-                  {type.acceptsSignal ? 'Images + Signal files' : type.imageType === 'color' ? 'Color photos' : 'Grayscale images'}
-                </span>
-              </div>
-              {type.acceptsSignal && (
-                <div className="mt-1 flex items-center gap-1">
-                  <FileUp size={10} className="text-green-500" />
-                  <span className="text-[10px] text-green-600 dark:text-green-400 font-medium">.dat .hea .csv supported</span>
-                </div>
+      <div className="grid items-stretch gap-5 lg:grid-cols-12 lg:min-h-[520px]">
+        {/* ---------- left: upload (sticky) ---------- */}
+        <Reveal delay={0.08} className="lg:col-span-5">
+          <div className="panel p-5 lg:sticky lg:top-24">
+            <div className="mb-4 flex items-center justify-between">
+              <h3 className="text-[15px] font-semibold text-ink">Source {fileType === 'signal' ? 'signal' : 'image'}</h3>
+              {selectedFile && (
+                <button onClick={clearSelection} className="btn-quiet btn-sm">
+                  <RotateCcw size={13} /> New scan
+                </button>
               )}
-            </button>
-          ))}
-        </div>
-      </div>
+            </div>
 
-      {/* Main Grid */}
-      <div className="grid lg:grid-cols-2 gap-6">
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept={current.fileAccept}
+              onChange={handleFileSelect}
+              className="hidden"
+            />
 
-        {/* Left - Upload */}
-        <div className="space-y-4">
-          <div className="card">
-            <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">Upload File</h3>
-
-            <input ref={fileInputRef} type="file" accept={currentAnalysisType?.fileAccept || 'image/*'}
-              onChange={handleFileSelect} className="hidden" />
-
-            {!preview && fileType !== 'signal' ? (
-              <div onClick={() => fileInputRef.current?.click()} onDrop={handleDrop} onDragOver={handleDragOver} onDragLeave={handleDragLeave}
-                className={`border-2 border-dashed rounded-xl p-8 text-center cursor-pointer transition-all ${isDragging ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/20 scale-[1.02]' : 'border-gray-300 dark:border-gray-600 hover:border-blue-400 hover:bg-blue-50/50 dark:hover:bg-blue-900/10'}`}>
-                <Upload className="mx-auto text-gray-400 mb-4" size={48} />
-                <p className="text-gray-600 dark:text-gray-400 font-medium">{isDragging ? 'Drop your file here!' : 'Click to upload or drag and drop'}</p>
-                <p className="text-sm text-gray-400 dark:text-gray-500 mt-2">{currentAnalysisType?.accepts}</p>
-                <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">PNG, JPG, JPEG up to 32MB</p>
-                {currentAnalysisType?.acceptsSignal && (
-                  <div className="mt-3 p-3 bg-green-50 dark:bg-green-900/20 rounded-lg border border-green-200 dark:border-green-800">
-                    <p className="text-xs text-green-700 dark:text-green-400 font-medium flex items-center gap-1 justify-center">
-                      <FileUp size={12} /> ECG Signal Files Supported
-                    </p>
-                    <p className="text-[10px] text-green-600 dark:text-green-500 mt-1">
-                      Upload .dat, .hea, .csv, .edf files from PTB-XL or other ECG datasets
-                    </p>
-                  </div>
-                )}
-              </div>
-            ) : fileType === 'signal' && selectedFile ? (
-              <div className="relative p-6 bg-gradient-to-br from-red-50 to-pink-50 dark:from-red-900/20 dark:to-pink-900/20 rounded-xl border-2 border-red-200 dark:border-red-800">
-                <button onClick={clearSelection} className="absolute top-2 right-2 p-2 bg-red-500 text-white rounded-full hover:bg-red-600 transition-all shadow-lg" title="Remove file"><X size={16} /></button>
-                <div className="text-center">
-                  <div className="w-16 h-16 bg-red-100 dark:bg-red-900/40 rounded-full flex items-center justify-center mx-auto mb-3">
-                    <Heart className="text-red-500" size={32} />
-                  </div>
-                  <h4 className="font-semibold text-gray-900 dark:text-white mb-1">ECG Signal File Loaded</h4>
-                  <p className="text-sm text-gray-600 dark:text-gray-400">{selectedFile.name}</p>
-                  <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">{(selectedFile.size / 1024).toFixed(1)} KB</p>
-                  <div className="mt-3 px-3 py-1.5 bg-green-100 dark:bg-green-900/30 rounded-full inline-flex items-center gap-1">
-                    <CheckCircle size={12} className="text-green-500" />
-                    <span className="text-xs text-green-700 dark:text-green-400 font-medium">Ready for analysis</span>
-                  </div>
-                </div>
-
-                {/* .hea companion file upload — required for PTB-XL .dat files */}
-                {selectedFile.name.toLowerCase().endsWith('.dat') && (
-                  <div className="mt-4 pt-4 border-t border-red-200 dark:border-red-700">
-                    <input
-                      ref={heaFileInputRef}
-                      type="file"
-                      accept=".hea"
-                      className="hidden"
-                      onChange={(e) => setHeaFile(e.target.files?.[0] || null)}
-                    />
-                    {heaFile ? (
-                      <div className="flex items-center gap-2 p-2 bg-green-50 dark:bg-green-900/20 rounded-lg border border-green-200 dark:border-green-700">
-                        <CheckCircle size={14} className="text-green-500 flex-shrink-0" />
-                        <div className="flex-1 min-w-0">
-                          <p className="text-xs font-medium text-green-700 dark:text-green-400 truncate">{heaFile.name}</p>
-                          <p className="text-[10px] text-green-600 dark:text-green-500">Header file attached ✓</p>
-                        </div>
-                        <button
-                          onClick={() => { setHeaFile(null); if (heaFileInputRef.current) heaFileInputRef.current.value = ''; }}
-                          className="text-green-600 hover:text-red-500 transition-colors"
-                        >
-                          <X size={14} />
-                        </button>
-                      </div>
+            <AnimatePresence mode="wait" initial={false}>
+              {!selectedFile ? (
+                <Motion.button
+                  key="drop"
+                  type="button"
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  exit={{ opacity: 0 }}
+                  onClick={() => fileInputRef.current?.click()}
+                  onDrop={(e) => {
+                    e.preventDefault();
+                    setIsDragging(false);
+                    const f = e.dataTransfer.files?.[0];
+                    if (f) handleFileSelect({ target: { files: [f] } });
+                  }}
+                  onDragOver={(e) => {
+                    e.preventDefault();
+                    setIsDragging(true);
+                  }}
+                  onDragLeave={(e) => {
+                    e.preventDefault();
+                    setIsDragging(false);
+                  }}
+                  className={`flex w-full flex-col items-center rounded-xl border border-dashed px-5 py-8 text-center transition-all duration-200 ${
+                    isDragging
+                      ? 'border-accent bg-accent/[0.06] scale-[1.01]'
+                      : 'border-line bg-paper hover:border-faint/70 hover:bg-raised/50'
+                  }`}
+                >
+                  <span className="dotgrid mb-3 flex h-12 w-12 items-center justify-center rounded-xl border border-line bg-surface text-muted">
+                    <Upload size={20} strokeWidth={1.8} />
+                  </span>
+                  <span className="text-base font-medium text-ink">
+                    {isDragging ? 'Drop it here' : 'Drop a file or browse'}
+                  </span>
+                  <span className="mt-1 text-sm text-muted">{current.accepts}</span>
+                  <span className="mt-3 inline-flex items-center gap-1.5 rounded-full border border-line bg-surface px-2.5 py-1 text-[13px] font-medium text-muted">
+                    {current.acceptsSignal ? (
+                      <><FileUp size={12} /> PNG · JPG · DAT · HEA · CSV · EDF</>
                     ) : (
-                      <button
-                        onClick={() => heaFileInputRef.current?.click()}
-                        className="w-full flex items-center justify-center gap-2 p-2.5 border border-dashed border-amber-400 dark:border-amber-600 rounded-lg text-xs text-amber-700 dark:text-amber-400 hover:bg-amber-50 dark:hover:bg-amber-900/20 transition-colors"
-                      >
-                        <FileUp size={14} />
-                        <span>
-                          <span className="font-semibold">Attach .hea header file</span>
-                          <span className="text-amber-600 dark:text-amber-500"> (recommended for PTB-XL .dat files)</span>
-                        </span>
-                      </button>
+                      <><FileImage size={12} /> PNG · JPG · WEBP · up to 32 MB</>
                     )}
+                  </span>
+                </Motion.button>
+              ) : fileType === 'signal' ? (
+                <Motion.div
+                  key="signal"
+                  initial={{ opacity: 0, scale: 0.98 }}
+                  animate={{ opacity: 1, scale: 1 }}
+                  exit={{ opacity: 0 }}
+                  transition={{ duration: 0.2, ease: easeOut }}
+                  className="rounded-xl border border-line bg-paper p-5 text-center"
+                >
+                  <span className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-xl bg-critical/10 text-critical">
+                    <Heart size={22} strokeWidth={1.9} />
+                  </span>
+                  <p className="truncate text-sm font-medium text-ink">{selectedFile.name}</p>
+                  <p className="t-num mt-0.5 text-xs text-muted">{fmtSize(selectedFile.size)} · ECG signal</p>
+                  <span className="mt-3 inline-flex items-center gap-1.5 rounded-full bg-low/10 px-2.5 py-1 text-xs font-medium text-low">
+                    <CheckCircle2 size={13} /> Ready for analysis
+                  </span>
+
+                  {selectedFile.name.toLowerCase().endsWith('.dat') && (
+                    <div className="mt-4 border-t border-line pt-4 text-left">
+                      <input
+                        ref={heaFileInputRef}
+                        type="file"
+                        accept=".hea"
+                        className="hidden"
+                        onChange={(e) => setHeaFile(e.target.files?.[0] || null)}
+                      />
+                      {heaFile ? (
+                        <div className="flex items-center gap-2.5 rounded-lg border border-line bg-surface px-3 py-2.5">
+                          <CheckCircle2 size={15} className="shrink-0 text-low" />
+                          <div className="min-w-0 flex-1">
+                            <p className="truncate text-[13px] font-medium text-ink">{heaFile.name}</p>
+                            <p className="text-[11px] text-low">Header attached</p>
+                          </div>
+                          <button
+                            onClick={() => {
+                              setHeaFile(null);
+                              if (heaFileInputRef.current) heaFileInputRef.current.value = '';
+                            }}
+                            className="rounded-lg p-1 text-faint hover:bg-raised hover:text-critical"
+                            aria-label="Remove header file"
+                          >
+                            <X size={14} />
+                          </button>
+                        </div>
+                      ) : (
+                        <button
+                          onClick={() => heaFileInputRef.current?.click()}
+                          className="flex w-full items-center justify-center gap-2 rounded-lg border border-dashed border-line px-3 py-2.5 text-xs text-muted transition-colors hover:border-faint/60 hover:text-ink"
+                        >
+                          <FileUp size={14} />
+                          Attach <span className="t-num font-semibold">.hea</span> header (recommended for PTB-XL)
+                        </button>
+                      )}
+                    </div>
+                  )}
+                </Motion.div>
+              ) : (
+                <Motion.div
+                  key="preview"
+                  initial={{ opacity: 0, scale: 0.98 }}
+                  animate={{ opacity: 1, scale: 1 }}
+                  exit={{ opacity: 0 }}
+                  transition={{ duration: 0.2, ease: easeOut }}
+                  className="group relative overflow-hidden rounded-xl border border-line bg-paper"
+                >
+                  <button
+                    onClick={() => setLightbox(true)}
+                    className="group/img relative block w-full cursor-zoom-in"
+                    aria-label="Enlarge image"
+                  >
+                    <img src={preview} alt="Selected scan" className="max-h-[260px] w-full object-contain" />
+                    <span className="absolute bottom-2.5 right-2.5 flex h-8 w-8 items-center justify-center rounded-lg bg-black/55 text-white opacity-0 backdrop-blur-sm transition-opacity group-hover/img:opacity-100">
+                      <Maximize2 size={15} />
+                    </span>
+                  </button>
+                  <div className="flex items-center gap-2.5 border-t border-line bg-surface px-3.5 py-2.5">
+                    <FileImage size={15} className="shrink-0 text-faint" />
+                    <p className="min-w-0 flex-1 truncate text-[13px] font-medium text-ink">{selectedFile.name}</p>
+                    <span className="t-num shrink-0 text-xs text-faint">{fmtSize(selectedFile.size)}</span>
+                    <button
+                      onClick={clearSelection}
+                      className="shrink-0 rounded-lg p-1.5 text-faint transition-colors hover:bg-critical/10 hover:text-critical"
+                      aria-label="Remove image"
+                    >
+                      <X size={14} />
+                    </button>
                   </div>
-                )}
-              </div>
-            ) : (
-              <div className="relative group">
-                <img src={preview} alt="Preview" className="w-full h-72 object-contain bg-gray-100 dark:bg-gray-800 rounded-xl" />
-                <button onClick={clearSelection} className="absolute top-2 right-2 p-2 bg-red-500 text-white rounded-full hover:bg-red-600 transition-all shadow-lg opacity-80 group-hover:opacity-100" title="Remove"><X size={16} /></button>
-              </div>
-            )}
+                </Motion.div>
+              )}
+            </AnimatePresence>
 
-            {selectedFile && fileType === 'image' && (
-              <div className="mt-4 p-3 bg-gray-50 dark:bg-gray-800 rounded-lg flex items-center gap-3">
-                <ImageIcon className="text-gray-400" size={20} />
-                <div className="flex-1 min-w-0">
-                  <p className="text-sm font-medium text-gray-900 dark:text-white truncate">{selectedFile.name}</p>
-                  <p className="text-xs text-gray-500 dark:text-gray-400">{(selectedFile.size / 1024 / 1024).toFixed(2)} MB</p>
-                </div>
-              </div>
-            )}
-
-            <button onClick={handleAnalyze} disabled={!selectedFile || isLoading}
-              className="w-full btn-primary mt-4 py-3 disabled:opacity-50 disabled:cursor-not-allowed">
-              {isLoading ? (<><Loader2 className="animate-spin" size={20} /> Analyzing...</>) : (
-                <><Camera size={20} /> Analyze {fileType === 'signal' ? 'ECG Signal' : 'Image'} for {currentAnalysisType?.title}</>
+            <button
+              onClick={handleAnalyze}
+              disabled={!selectedFile || isLoading}
+              className="btn-accent mt-4 w-full py-3.5 text-[15px]"
+            >
+              {isLoading ? (
+                <><Loader2 size={17} className="animate-spin" /> Analyzing…</>
+              ) : (
+                <><ScanSearch size={17} /> Analyze {current.title.toLowerCase()}</>
               )}
             </button>
+
+            <AnimatePresence>
+              {error && (
+                <Motion.div
+                  initial={{ opacity: 0, height: 0 }}
+                  animate={{ opacity: 1, height: 'auto' }}
+                  exit={{ opacity: 0, height: 0 }}
+                  className="overflow-hidden"
+                >
+                  <div className="mt-3 flex items-start gap-2.5 rounded-xl bg-critical/[0.07] px-3.5 py-3">
+                    <CircleAlert size={16} className="mt-px shrink-0 text-critical" />
+                    <p className="text-[13px] font-medium leading-relaxed text-critical">{error}</p>
+                  </div>
+                </Motion.div>
+              )}
+              {validationError && (
+                <Motion.div
+                  initial={{ opacity: 0, height: 0 }}
+                  animate={{ opacity: 1, height: 'auto' }}
+                  exit={{ opacity: 0, height: 0 }}
+                  className="overflow-hidden"
+                >
+                  <div className="mt-3 rounded-xl bg-moderate/[0.09] px-3.5 py-3">
+                    <p className="flex items-center gap-2 text-[13px] font-semibold text-moderate">
+                      <TriangleAlert size={15} /> Wrong file type
+                    </p>
+                    <p className="mt-1 text-[13px] leading-relaxed text-muted">{validationError.message}</p>
+                    {validationError.suggestion && (
+                      <p className="mt-1.5 text-[13px] font-medium text-ink">{validationError.suggestion}</p>
+                    )}
+                    <button onClick={clearSelection} className="btn-ghost btn-sm mt-2.5 w-full">
+                      Upload the correct file
+                    </button>
+                  </div>
+                </Motion.div>
+              )}
+            </AnimatePresence>
           </div>
+        </Reveal>
 
-          {error && (
-            <div className="p-4 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-xl flex items-start gap-3">
-              <AlertCircle size={18} className="flex-shrink-0 text-red-500 mt-0.5" />
-              <span className="text-sm text-red-700 dark:text-red-400">{error}</span>
-            </div>
-          )}
-
-          {validationError && (
-            <div className="p-4 bg-orange-50 dark:bg-orange-900/20 border border-orange-200 dark:border-orange-800 rounded-xl">
-              <div className="flex items-start gap-3">
-                <XCircle className="text-orange-500 flex-shrink-0 mt-0.5" size={24} />
-                <div className="flex-1">
-                  <h4 className="font-semibold text-orange-800 dark:text-orange-300 flex items-center gap-2"><AlertTriangle size={16} /> Wrong File Type</h4>
-                  <p className="text-sm text-orange-700 dark:text-orange-400 mt-1">{validationError.message}</p>
-                  <div className="mt-3 p-3 bg-orange-100 dark:bg-orange-900/30 rounded-lg">
-                    <p className="text-sm font-medium text-orange-800 dark:text-orange-300">{validationError.suggestion}</p>
+        {/* ---------- right: result ---------- */}
+        <div className="lg:col-span-7" id="analysis-result" style={{ scrollMarginTop: 90 }}>
+          <Reveal delay={0.12} className="h-full">
+            <AnimatePresence mode="wait" initial={false}>
+              {isLoading ? (
+                <Motion.div
+                  key="loading"
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  exit={{ opacity: 0 }}
+                  className="panel p-5"
+                >
+                  <div className="flex items-center gap-5">
+                    <div className="flex-1 space-y-3">
+                      <div className="skeleton h-3 w-28 rounded-full" />
+                      <div className="skeleton h-7 w-3/4 rounded-lg" />
+                      <div className="skeleton h-3 w-40 rounded-full" />
+                    </div>
+                    <div className="skeleton h-24 w-24 shrink-0 rounded-full" />
                   </div>
-                  <button onClick={clearSelection} className="mt-3 w-full px-4 py-2 bg-orange-500 text-white rounded-lg hover:bg-orange-600 transition-colors text-sm font-medium">
-                    Upload Correct File
-                  </button>
-                </div>
-              </div>
-            </div>
-          )}
+                  <div className="mt-5 flex items-center gap-2.5 border-t border-line pt-4 text-[13px] text-muted">
+                    <Loader2 size={15} className="animate-spin text-accent" />
+                    Running {current.title.toLowerCase()} model — this can take a few seconds…
+                  </div>
+                </Motion.div>
+              ) : result ? (
+                <Motion.div
+                  key="result"
+                  initial={{ opacity: 0, y: 12 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ duration: 0.35, ease: easeOut }}
+                  className="panel overflow-hidden"
+                >
+                  <ImageResultView result={result} fileName={selectedFile?.name} imageUrl={preview} onImageClick={() => setLightbox(true)} />
+                </Motion.div>
+              ) : (
+                <Motion.div
+                  key="empty"
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  exit={{ opacity: 0 }}
+                  className="panel flex h-full flex-col"
+                >
+                  <EmptyState
+                    icon={ClipboardList}
+                    title="No analysis yet"
+                    hint="Upload a file on the left and the result will appear here — condition, confidence and guidance in one view."
+                    className="flex-1 justify-center"
+                  />
+                  <div className="grid grid-cols-3 gap-px overflow-hidden rounded-b-2xl border-t border-line bg-line">
+                    {[
+                      { icon: Upload, t: 'Upload', d: 'Image or signal' },
+                      { icon: ScanSearch, t: 'Analyze', d: 'AI screening' },
+                      { icon: ShieldCheck, t: 'Review', d: 'Guided next steps' },
+                    ].map((s) => (
+                      <div key={s.t} className="bg-surface px-3 py-3.5 text-center">
+                        <s.icon size={17} className="mx-auto text-faint" strokeWidth={1.9} />
+                        <p className="mt-1.5 text-sm font-medium text-ink">{s.t}</p>
+                        <p className="text-[13px] text-faint">{s.d}</p>
+                      </div>
+                    ))}
+                  </div>
+                </Motion.div>
+              )}
+            </AnimatePresence>
+          </Reveal>
         </div>
 
-        {/* Right - Results */}
-        <div className="space-y-4">
-          {result ? (
-            <div className="card animate-scale-in">
-              <div className="flex items-center gap-3 mb-6">
-                {getSeverityIcon(result.severity)}
-                <div className="flex-1">
-                  <h3 className="font-semibold text-gray-900 dark:text-white text-lg">Analysis Complete</h3>
-                  {result.signal_processed && <span className="text-xs text-green-600 dark:text-green-400 bg-green-100 dark:bg-green-900/30 px-2 py-0.5 rounded-full font-medium ml-1">Signal Analysis</span>}
-                </div>
-              </div>
-
-              {result.prediction && (
-                <div className={`p-5 rounded-xl border-2 mb-4 ${getSeverityStyles(result.severity).bg} ${getSeverityStyles(result.severity).border} ${getSeverityStyles(result.severity).glow}`}>
-                  <div className="flex items-center justify-between mb-3">
-                    <span className={`text-sm font-medium ${getSeverityStyles(result.severity).text}`}>Detected Condition</span>
-                    <span className={`px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wide ${getSeverityStyles(result.severity).badge}`}>{result.severity}</span>
-                  </div>
-                  <p className={`text-2xl font-bold ${getSeverityStyles(result.severity).text} mb-1`}>{result.prediction.name}</p>
-                  {result.prediction.type && <p className={`text-sm ${getSeverityStyles(result.severity).text} opacity-75 mb-1`}>Type: <span className="font-medium">{result.prediction.type}</span></p>}
-                  {result.prediction.code && <p className={`text-xs ${getSeverityStyles(result.severity).text} opacity-60`}>Code: {result.prediction.code}</p>}
-                  {result.prediction.birads && <p className={`text-sm ${getSeverityStyles(result.severity).text} opacity-75 mt-1`}>{result.prediction.birads}</p>}
-                  <ConfidenceBar confidence={result.prediction.confidence} severity={result.severity} />
-                </div>
-              )}
-
-              {renderStaging(result.staging)}
-              {renderUrgency(result.urgency)}
-              {renderTreatmentOptions(result.treatment_options)}
-              {renderRecommendations(result.recommendations)}
-              {renderAllPredictions(result.all_predictions)}
-
-              {result.note && (
-                <div className="mt-4 p-3 bg-amber-50 dark:bg-amber-900/20 rounded-lg border border-amber-200 dark:border-amber-800">
-                  <p className="text-sm text-amber-700 dark:text-amber-400"><strong>⚠️ Note:</strong> {result.note}</p>
-                </div>
-              )}
-            </div>
-          ) : (
-            <div className="card">
-              <h3 className="font-semibold text-gray-900 dark:text-white mb-4 flex items-center gap-2"><Info size={20} className="text-blue-500" />How It Works</h3>
-              <div className="space-y-4 text-sm text-gray-600 dark:text-gray-400">
-                {[{ n: '1', t: 'Select Analysis Type', d: 'Choose the type of medical analysis' }, { n: '2', t: 'Upload File', d: 'Upload an image or ECG signal file (.dat)' }, { n: '3', t: 'Get Results', d: 'Receive detailed results with confidence levels' }].map(s => (
-                  <div key={s.n} className="flex items-start gap-3">
-                    <div className="w-8 h-8 bg-blue-100 dark:bg-blue-900/30 rounded-full flex items-center justify-center flex-shrink-0"><span className="text-blue-600 dark:text-blue-400 font-bold">{s.n}</span></div>
-                    <div><p className="font-medium text-gray-900 dark:text-white">{s.t}</p><p>{s.d}</p></div>
-                  </div>
-                ))}
-              </div>
-
-              {/* Signal file info */}
-              <div className="mt-6 p-4 bg-green-50 dark:bg-green-900/20 rounded-xl border border-green-200 dark:border-green-800">
-                <p className="text-sm text-green-800 dark:text-green-300 font-medium mb-2 flex items-center gap-2"><FileUp size={16} />ECG Signal File Support (Heart Analysis)</p>
-                <div className="space-y-1 text-xs text-green-700 dark:text-green-400">
-                  <p>• <strong>.dat / .hea files</strong> - PTB-XL, PhysioNet WFDB format</p>
-                  <p>• <strong>.csv files</strong> - Comma-separated ECG data</p>
-                  <p>• <strong>.edf files</strong> - European Data Format</p>
-                  <p className="mt-2 text-green-600 dark:text-green-500 italic">Signal files are converted to ECG images server-side for analysis</p>
-                </div>
-              </div>
-
-              <div className="mt-4 p-4 bg-blue-50 dark:bg-blue-900/20 rounded-xl border border-blue-200 dark:border-blue-800">
-                <p className="text-sm text-blue-800 dark:text-blue-300 font-medium mb-3 flex items-center gap-2"><ImageIcon size={16} />Image Requirements:</p>
-                <div className="space-y-2 text-sm text-blue-700 dark:text-blue-400">
-                  {[{ icon: Microscope, label: 'Skin Cancer', desc: 'Color photos of lesions/moles' }, { icon: Stethoscope, label: 'Chest X-ray', desc: 'Grayscale X-ray images' }, { icon: Activity, label: 'Breast Cancer', desc: 'Grayscale mammograms' }, { icon: Heart, label: 'Heart/ECG', desc: 'ECG images OR .dat signal files' }].map(i => (
-                    <div key={i.label} className="flex items-start gap-2"><i.icon size={14} className="mt-0.5 flex-shrink-0" /><div><strong>{i.label}:</strong> {i.desc}</div></div>
-                  ))}
-                </div>
-              </div>
-            </div>
+        {/* lightbox */}
+        <AnimatePresence>
+          {lightbox && preview && (
+            <Lightbox key="lightbox" src={preview} alt={selectedFile?.name || 'Selected scan'} onClose={() => setLightbox(false)} />
           )}
-        </div>
+        </AnimatePresence>
       </div>
     </div>
   );
 }
 
-export default ImageAnalysis;
+function Lightbox({ src, alt, onClose }) {
+  React.useEffect(() => {
+    const fn = (e) => e.key === 'Escape' && onClose();
+    window.addEventListener('keydown', fn);
+    document.body.style.overflow = 'hidden';
+    return () => {
+      window.removeEventListener('keydown', fn);
+      document.body.style.overflow = '';
+    };
+  }, [onClose]);
+  return (
+    <Motion.div
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+      transition={{ duration: 0.18 }}
+      onClick={onClose}
+      className="fixed inset-0 z-[95] flex cursor-zoom-out items-center justify-center bg-black/85 p-4 backdrop-blur-sm sm:p-8"
+      role="dialog"
+      aria-label="Image preview"
+    >
+      <Motion.img
+        src={src}
+        alt={alt}
+        initial={{ scale: 0.96 }}
+        animate={{ scale: 1 }}
+        exit={{ scale: 0.97 }}
+        transition={{ duration: 0.2, ease: easeOut }}
+        onClick={(e) => e.stopPropagation()}
+        className="max-h-[88vh] max-w-full cursor-default rounded-xl object-contain shadow-2xl"
+      />
+      <span className="absolute left-1/2 top-5 max-w-[80vw] -translate-x-1/2 truncate rounded-full bg-black/55 px-3.5 py-1.5 text-xs text-white/90 backdrop-blur-sm">
+        {alt}
+      </span>
+      <span className="absolute right-4 top-4 flex h-9 w-9 items-center justify-center rounded-full bg-black/55 text-white backdrop-blur-sm">
+        <X size={17} />
+      </span>
+    </Motion.div>
+  );
+}

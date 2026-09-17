@@ -1,216 +1,109 @@
 import React, { useState } from 'react';
-import { 
-  Heart, 
-  Apple, 
-  Moon, 
-  Dumbbell, 
-  Brain, 
+import { motion as Motion } from 'framer-motion';
+import {
+  Apple,
+  Moon,
+  Dumbbell,
+  Brain,
   Droplets,
-  Sun,
-  Shield,
-  ChevronRight
+  LayoutGrid,
+  ShieldCheck,
+  ArrowUpRight,
 } from 'lucide-react';
+import { PageHeader, Reveal } from '../components/ui/ui';
 
-function HealthTips() {
-  const [activeCategory, setActiveCategory] = useState('all');
+const CATS = [
+  { id: 'all', label: 'All', icon: LayoutGrid },
+  { id: 'nutrition', label: 'Nutrition', icon: Apple },
+  { id: 'sleep', label: 'Sleep', icon: Moon },
+  { id: 'exercise', label: 'Exercise', icon: Dumbbell },
+  { id: 'mental', label: 'Mind', icon: Brain },
+  { id: 'hydration', label: 'Hydration', icon: Droplets },
+];
 
-  const categories = [
-    { id: 'all', label: 'All Tips', icon: Heart },
-    { id: 'nutrition', label: 'Nutrition', icon: Apple },
-    { id: 'sleep', label: 'Sleep', icon: Moon },
-    { id: 'exercise', label: 'Exercise', icon: Dumbbell },
-    { id: 'mental', label: 'Mental Health', icon: Brain },
-    { id: 'hydration', label: 'Hydration', icon: Droplets },
-  ];
+const TIPS = [
+  { id: 1, cat: 'nutrition', icon: Apple, title: 'Eat the rainbow', desc: 'Different colors signal different nutrients. Cover red, orange, green and purple most days.' },
+  { id: 2, cat: 'sleep', icon: Moon, title: 'Keep a fixed wake time', desc: 'Same wake-up daily — weekends included. It anchors your circadian rhythm better than bedtime does.' },
+  { id: 3, cat: 'exercise', icon: Dumbbell, title: '150 minutes a week', desc: 'WHO baseline: moderate cardio like brisk walking or cycling, plus two strength sessions.' },
+  { id: 4, cat: 'mental', icon: Brain, title: 'Ten mindful minutes', desc: 'A short daily practice measurably lowers perceived stress within two weeks.' },
+  { id: 5, cat: 'hydration', icon: Droplets, title: 'Two litres, roughly', desc: 'Pale-yellow urine is the target. More if you train, sweat, or drink coffee.' },
+  { id: 6, cat: 'nutrition', icon: Apple, title: 'Crowd out ultra-processed', desc: 'Don’t diet — add. More whole foods naturally displaces the packaged stuff.' },
+  { id: 7, cat: 'sleep', icon: Moon, title: 'Screens off, wind down', desc: 'One screen-free hour before bed. Read, stretch, dim the lights.' },
+  { id: 8, cat: 'exercise', icon: Dumbbell, title: 'Lift twice weekly', desc: 'Strength work preserves muscle and bone density — the longevity reserve.' },
+  { id: 9, cat: 'mental', icon: Brain, title: 'Maintain your people', desc: 'A regular call with someone you trust rivals exercise for mood.' },
+  { id: 10, cat: 'hydration', icon: Droplets, title: 'Front-load water', desc: 'A large glass on waking offsets overnight loss and morning fog.' },
+  { id: 11, cat: 'nutrition', icon: Apple, title: 'Slow the plate', desc: 'Smaller plates, slower bites. Satiety needs ~20 minutes to register.' },
+  { id: 12, cat: 'exercise', icon: Dumbbell, title: 'Break up sitting', desc: 'Five moving minutes per seated hour. Set the timer, thank your spine.' },
+];
 
-  const healthTips = [
-    {
-      id: 1,
-      category: 'nutrition',
-      title: 'Eat a Rainbow of Vegetables',
-      description: 'Different colored vegetables contain different nutrients. Aim to include red, orange, yellow, green, and purple vegetables in your daily diet for optimal nutrition.',
-      icon: Apple,
-      color: 'bg-green-500',
-    },
-    {
-      id: 2,
-      category: 'sleep',
-      title: 'Maintain a Consistent Sleep Schedule',
-      description: 'Go to bed and wake up at the same time every day, even on weekends. This helps regulate your bodys internal clock and improves sleep quality.',
-      icon: Moon,
-      color: 'bg-indigo-500',
-    },
-    {
-      id: 3,
-      category: 'exercise',
-      title: '150 Minutes of Weekly Exercise',
-      description: 'The WHO recommends at least 150 minutes of moderate-intensity aerobic activity per week. This can include brisk walking, cycling, or swimming.',
-      icon: Dumbbell,
-      color: 'bg-orange-500',
-    },
-    {
-      id: 4,
-      category: 'mental',
-      title: 'Practice Mindfulness Daily',
-      description: 'Spend 10-15 minutes each day practicing mindfulness or meditation. This can reduce stress, improve focus, and enhance emotional well-being.',
-      icon: Brain,
-      color: 'bg-purple-500',
-    },
-    {
-      id: 5,
-      category: 'hydration',
-      title: 'Drink 8 Glasses of Water Daily',
-      description: 'Staying hydrated is essential for body temperature regulation, nutrient transport, and organ function. Aim for about 2 liters of water per day.',
-      icon: Droplets,
-      color: 'bg-blue-500',
-    },
-    {
-      id: 6,
-      category: 'nutrition',
-      title: 'Reduce Processed Food Intake',
-      description: 'Processed foods often contain high levels of sodium, sugar, and unhealthy fats. Choose whole, unprocessed foods whenever possible.',
-      icon: Apple,
-      color: 'bg-green-500',
-    },
-    {
-      id: 7,
-      category: 'sleep',
-      title: 'Create a Relaxing Bedtime Routine',
-      description: 'Avoid screens for at least an hour before bed. Instead, try reading, gentle stretching, or listening to calming music to prepare for sleep.',
-      icon: Moon,
-      color: 'bg-indigo-500',
-    },
-    {
-      id: 8,
-      category: 'exercise',
-      title: 'Include Strength Training',
-      description: 'In addition to cardio, include strength training exercises at least twice a week. This helps maintain muscle mass and bone density.',
-      icon: Dumbbell,
-      color: 'bg-orange-500',
-    },
-    {
-      id: 9,
-      category: 'mental',
-      title: 'Connect with Others',
-      description: 'Social connections are vital for mental health. Make time to connect with friends and family regularly, even if its just a phone call.',
-      icon: Brain,
-      color: 'bg-purple-500',
-    },
-    {
-      id: 10,
-      category: 'hydration',
-      title: 'Monitor Your Hydration',
-      description: 'Check the color of your urine - pale yellow indicates good hydration. Dark urine may signal you need to drink more water.',
-      icon: Droplets,
-      color: 'bg-blue-500',
-    },
-    {
-      id: 11,
-      category: 'nutrition',
-      title: 'Practice Portion Control',
-      description: 'Use smaller plates and bowls to help control portion sizes. Eat slowly and stop when you feel satisfied, not stuffed.',
-      icon: Apple,
-      color: 'bg-green-500',
-    },
-    {
-      id: 12,
-      category: 'exercise',
-      title: 'Take Regular Movement Breaks',
-      description: 'If you sit for long periods, take a 5-minute movement break every hour. Stretch, walk, or do some light exercises.',
-      icon: Dumbbell,
-      color: 'bg-orange-500',
-    },
-  ];
-
-  const filteredTips = activeCategory === 'all' 
-    ? healthTips 
-    : healthTips.filter(tip => tip.category === activeCategory);
-
-  const featuredTip = {
-    title: 'Regular Health Check-ups',
-    description: 'Prevention is better than cure. Schedule regular health check-ups with your healthcare provider. Early detection of health issues leads to better outcomes. Recommended screenings vary by age and risk factors.',
-    icon: Shield,
-  };
+export default function HealthTips() {
+  const [cat, setCat] = useState('all');
+  const list = cat === 'all' ? TIPS : TIPS.filter((t) => t.cat === cat);
 
   return (
-    <div className="space-y-6 animate-fade-in">
-      <div>
-        <h1 className="page-title">Health Tips</h1>
-        <p className="page-subtitle -mt-3">
-          Evidence-based health tips to help you live a healthier life.
-        </p>
-      </div>
+    <div className="space-y-5">
+      <PageHeader
+        eyebrow="Library"
+        title="Health tips"
+        description="Small, evidence-based habits. Pick one and repeat it until it's boring."
+      />
 
-      <div className="card bg-gradient-to-r from-primary-500 to-blue-600 text-white">
-        <div className="flex items-start gap-4">
-          <div className="w-14 h-14 bg-white/20 rounded-xl flex items-center justify-center flex-shrink-0">
-            <featuredTip.icon size={28} />
-          </div>
+      <Reveal delay={0.05}>
+        <div className="panel flex items-start gap-4 p-5">
+          <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-ink text-paper dark:bg-white dark:text-black">
+            <ShieldCheck size={20} strokeWidth={1.9} />
+          </span>
           <div>
-            <span className="text-xs font-medium bg-white/20 px-2 py-1 rounded-full">
-              Featured Tip
-            </span>
-            <h3 className="text-xl font-semibold mt-2">{featuredTip.title}</h3>
-            <p className="text-white/80 mt-2">{featuredTip.description}</p>
+            <p className="eyebrow">Featured</p>
+            <p className="mt-1 text-base font-semibold tracking-tight text-ink">
+              Prevention beats cure — schedule the check-up.
+            </p>
+            <p className="mt-1 max-w-2xl text-sm leading-relaxed text-muted">
+              Early detection changes outcomes. Annual screenings matched to your age and risk
+              factors are the highest-leverage health habit there is.
+            </p>
           </div>
         </div>
-      </div>
+      </Reveal>
 
-      <div className="flex gap-2 overflow-x-auto pb-2 scrollbar-hide">
-        {categories.map((category) => (
-          <button
-            key={category.id}
-            onClick={() => setActiveCategory(category.id)}
-            className={`flex items-center gap-2 px-4 py-2 rounded-full font-medium whitespace-nowrap transition-colors ${
-              activeCategory === category.id
-                ? 'bg-primary-600 text-white'
-                : 'bg-zinc-100 dark:bg-zinc-850 text-zinc-600 dark:text-zinc-450 hover:bg-zinc-200 dark:hover:bg-zinc-800'
-            }`}
+      <Reveal delay={0.08}>
+        <div className="flex gap-1.5 overflow-x-auto pb-1 no-scrollbar">
+          {CATS.map((c) => (
+            <button
+              key={c.id}
+              onClick={() => setCat(c.id)}
+              data-on={cat === c.id}
+              className="chip shrink-0"
+            >
+              <c.icon size={14} strokeWidth={2} />
+              {c.label}
+            </button>
+          ))}
+        </div>
+      </Reveal>
+
+      <Motion.div layout className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+        {list.map((t, i) => (
+          <Motion.article
+            layout
+            key={t.id}
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: Math.min(i * 0.04, 0.3), duration: 0.3, ease: [0.22, 1, 0.36, 1] }}
+            className="panel group p-5 transition-all duration-200 hover:-translate-y-0.5 hover:!shadow-lift"
           >
-            <category.icon size={16} />
-            {category.label}
-          </button>
-        ))}
-      </div>
-
-      <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-4">
-        {filteredTips.map((tip) => (
-          <div key={tip.id} className="card hover:shadow-md transition-shadow group">
-            <div className="flex items-start gap-4">
-              <div className={`w-12 h-12 ${tip.color} rounded-xl flex items-center justify-center flex-shrink-0 text-white shadow-sm`}>
-                <tip.icon size={24} />
-              </div>
-              <div className="flex-1">
-                <h3 className="font-semibold text-zinc-900 dark:text-zinc-100 group-hover:text-primary-600 transition-colors">
-                  {tip.title}
-                </h3>
-                <p className="text-xs text-zinc-400 dark:text-zinc-500 capitalize mt-1">{tip.category}</p>
-              </div>
+            <div className="flex items-start justify-between">
+              <span className="flex h-10 w-10 items-center justify-center rounded-xl border border-line bg-paper text-ink">
+                <t.icon size={18} strokeWidth={1.9} />
+              </span>
+              <ArrowUpRight size={15} className="text-faint opacity-0 transition-opacity group-hover:opacity-100" />
             </div>
-            <p className="text-zinc-600 dark:text-zinc-400 mt-4 text-sm leading-relaxed">
-              {tip.description}
-            </p>
-          </div>
+            <h3 className="mt-3.5 text-base font-semibold tracking-tight text-ink">{t.title}</h3>
+            <p className="mt-1 text-sm leading-relaxed text-muted">{t.desc}</p>
+            <p className="mt-3 text-xs font-medium uppercase tracking-[0.08em] text-faint">{t.cat}</p>
+          </Motion.article>
         ))}
-      </div>
-
-      <div className="card bg-gradient-to-r from-amber-50/50 to-orange-50/50 dark:from-amber-950/10 dark:to-orange-950/10 border-amber-200/50 dark:border-amber-800/40">
-        <div className="flex items-center gap-4">
-          <div className="w-12 h-12 bg-amber-100 dark:bg-amber-900/20 rounded-xl flex items-center justify-center flex-shrink-0">
-            <Sun className="text-amber-600 dark:text-amber-500" size={24} />
-          </div>
-          <div className="flex-1">
-            <h3 className="font-semibold text-zinc-900 dark:text-zinc-100">Daily Health Reminder</h3>
-            <p className="text-sm text-zinc-650 dark:text-zinc-400 mt-1">
-              Small, consistent healthy habits lead to significant long-term health benefits. 
-              Start with one tip today and gradually build your healthy routine.
-            </p>
-          </div>
-          <ChevronRight className="text-zinc-400" size={20} />
-        </div>
-      </div>
+      </Motion.div>
     </div>
   );
 }
-
-export default HealthTips;

@@ -1,0 +1,87 @@
+{
+  "model_path": "C:\\Users\\Harsh\\OneDrive\\Desktop\\Harshit\\medidiagnose-ai\\ml_model\\heart_image_model.h5",
+  "model_type": "image",
+  "input_shape": [
+    224,
+    224,
+    1
+  ],
+  "preprocessing": "ECG rendered dark-background via medidiagnose.inference_utils.signal_to_ecg_image; photo uploads auto-inverted at serve time",
+  "note": "Model internally replicates 1ch to 3ch for MobileNetV2",
+  "num_classes": 5,
+  "classes": {
+    "0": {
+      "code": "normal",
+      "name": "Normal",
+      "severity": "healthy"
+    },
+    "1": {
+      "code": "mi",
+      "name": "Myocardial Infarction",
+      "severity": "critical"
+    },
+    "2": {
+      "code": "arrhythmia",
+      "name": "Arrhythmia",
+      "severity": "moderate"
+    },
+    "3": {
+      "code": "hf",
+      "name": "Heart Failure Signs",
+      "severity": "high"
+    },
+    "4": {
+      "code": "hypertrophy",
+      "name": "Ventricular Hypertrophy",
+      "severity": "moderate"
+    }
+  },
+  "class_names": [
+    "Normal",
+    "MI",
+    "Arrhythmia",
+    "Heart Failure",
+    "Hypertrophy"
+  ],
+  "architecture": "MobileNetV2_transfer_learning_v3_full_finetune",
+  "training_notes": "Full PTB-XL (records100), patient-disjoint strat_fold split 1-8/9/10, sqrt-balanced class weights, full-backbone fine-tune, cosine LR",
+  "accuracy": 0.7178,
+  "using_real_data": true,
+  "confusion_matrix": [
+    [
+      827,
+      27,
+      6,
+      40,
+      12
+    ],
+    [
+      48,
+      244,
+      22,
+      55,
+      23
+    ],
+    [
+      34,
+      21,
+      40,
+      7,
+      9
+    ],
+    [
+      63,
+      61,
+      6,
+      197,
+      4
+    ],
+    [
+      22,
+      18,
+      8,
+      7,
+      31
+    ]
+  ]
+}

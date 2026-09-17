@@ -25,9 +25,72 @@
     "nv": 5,
     "vasc": 6
   },
-  "architecture": "MobileNetV2_transfer_learning_improved",
-  "accuracy": 0.2796257734298706,
-  "precision": 0.3480392098426819,
-  "recall": 0.073804572224617,
-  "auc": 0.7065944671630859
+  "architecture": "MobileNetV2_transfer_learning_v4",
+  "training_notes": "HAM10000 + PAD-UFES-20 (group-disjoint split), in-model Random* augmentation, train-only rebalancing, full-backbone fine-tune, cosine LR",
+  "accuracy": 0.7825261354446411,
+  "confusion_matrix": [
+    [
+      81,
+      20,
+      7,
+      2,
+      3,
+      0,
+      0
+    ],
+    [
+      18,
+      69,
+      4,
+      0,
+      3,
+      1,
+      0
+    ],
+    [
+      5,
+      2,
+      96,
+      3,
+      16,
+      19,
+      0
+    ],
+    [
+      0,
+      0,
+      0,
+      3,
+      0,
+      0,
+      0
+    ],
+    [
+      1,
+      1,
+      10,
+      0,
+      71,
+      25,
+      0
+    ],
+    [
+      1,
+      1,
+      28,
+      3,
+      54,
+      494,
+      0
+    ],
+    [
+      0,
+      1,
+      0,
+      0,
+      0,
+      1,
+      10
+    ]
+  ]
 }

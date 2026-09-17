@@ -54,12 +54,12 @@
     "Urinary tract infection",
     "Varicose veins"
   ],
-  "accuracy": 0.8076923076923077,
-  "f1_weighted": 0.812901952514477,
-  "cv_accuracy_mean": 0.9494047619047619,
-  "cv_accuracy_std": 0.007299861769883782,
-  "train_samples": 1767,
-  "test_samples": 442,
+  "accuracy": 0.8255933952528379,
+  "f1_weighted": 0.8292719310122895,
+  "cv_accuracy_mean": 0.9199404761904761,
+  "cv_accuracy_std": 0.0022031851813478494,
+  "train_samples": 3874,
+  "test_samples": 969,
   "feature_selection_used": false,
   "compatible_with": "server.py v4.1 /predict-disease endpoint"
 }

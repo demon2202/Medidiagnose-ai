@@ -1,39 +1,55 @@
 import React, { useState } from 'react';
+import { motion as Motion, AnimatePresence } from 'framer-motion';
 import {
-  User,
-  Bell,
-  Shield,
+  UserRound,
+  Lock,
+  SlidersHorizontal,
+  Database,
+  Trash2,
+  Check,
+  Eye,
+  EyeOff,
   Moon,
   Sun,
-  Trash2,
-  Save,
-  Check,
-  Lock,
-  Eye,
-  EyeOff
+  Bell,
+  History as HistoryIcon,
+  ShieldCheck
 } from 'lucide-react';
 import { useApp } from '../context/AppContext';
+import { PageHeader, Modal, ModalHeader, Reveal } from '../components/ui/ui';
+import { spring } from '../lib/motion';
 
-function Toggle({ enabled, onChange, label, description, icon: Icon }) {
+const SECTIONS = [
+  { id: 'profile', label: 'Profile', icon: UserRound },
+  { id: 'security', label: 'Password', icon: Lock },
+  { id: 'preferences', label: 'Preferences', icon: SlidersHorizontal },
+  { id: 'data', label: 'Data', icon: Database },
+];
+
+function Switch({ on, onToggle, label, desc, icon: Icon }) {
   return (
-    <div className="flex items-center justify-between p-4 bg-zinc-50 dark:bg-zinc-900/40 rounded-xl border border-zinc-200 dark:border-zinc-800 hover:border-zinc-300 dark:hover:border-zinc-700 transition-all">
-      <div className="flex items-center gap-3 flex-1">
-        {Icon && <Icon className="text-zinc-500 dark:text-zinc-400" size={20} />}
-        <div>
-          <p className="font-medium text-zinc-900 dark:text-zinc-100">{label}</p>
-          <p className="text-sm text-zinc-500 dark:text-zinc-400">{description}</p>
+    <div className="flex items-center justify-between gap-4 rounded-xl border border-line bg-surface px-4 py-3.5">
+      <div className="flex min-w-0 items-center gap-3">
+        {Icon && <Icon size={17} className="shrink-0 text-muted" />}
+        <div className="min-w-0">
+          <p className="text-[15px] font-medium text-ink">{label}</p>
+          <p className="truncate text-sm text-muted">{desc}</p>
         </div>
       </div>
       <button
-        onClick={onChange}
         type="button"
-        className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-zinc-500 focus:ring-offset-2 dark:focus:ring-offset-zinc-950 ${
-          enabled ? 'bg-zinc-200 dark:bg-zinc-700' : 'bg-zinc-300 dark:bg-zinc-800'
+        role="switch"
+        aria-checked={on}
+        onClick={onToggle}
+        className={`relative h-6 w-11 shrink-0 rounded-full transition-colors duration-200 ${
+          on ? 'bg-ink dark:bg-white' : 'bg-ink/15 dark:bg-white/15'
         }`}
       >
-        <span
-          className={`inline-block h-4 w-4 transform rounded-full transition-transform ${
-            enabled ? 'translate-x-6 bg-zinc-900 dark:bg-zinc-100' : 'translate-x-1 bg-zinc-500 dark:bg-zinc-400'
+        <Motion.span
+          animate={{ x: on ? 22 : 2 }}
+          transition={spring}
+          className={`absolute top-[3px] h-[18px] w-[18px] rounded-full ${
+            on ? 'bg-paper dark:bg-black' : 'bg-white dark:bg-white/60'
           }`}
         />
       </button>
@@ -41,395 +57,287 @@ function Toggle({ enabled, onChange, label, description, icon: Icon }) {
   );
 }
 
-function Settings() {
-  const { 
-    user, 
-    updateProfile, 
-    settings, 
-    updateSettings, 
-    toggleDarkMode, 
-    clearHistory, 
-    history, 
-    changePassword 
+export default function Settings() {
+  const {
+    user,
+    updateProfile,
+    settings,
+    updateSettings,
+    theme,
+    toggleTheme,
+    clearHistory,
+    history,
+    changePassword
   } = useApp();
-  
-  const [activeSection, setActiveSection] = useState('profile');
-  const [showClearConfirm, setShowClearConfirm] = useState(false);
+
+  const [section, setSection] = useState('profile');
+  const [form, setForm] = useState({ name: user?.name || '', email: user?.email || '' });
   const [saved, setSaved] = useState(false);
-  
-  const [formData, setFormData] = useState({
-    name: user?.name || '',
-    email: user?.email || '',
-  });
+  const [pw, setPw] = useState({ current: '', next: '', confirm: '' });
+  const [show, setShow] = useState({ current: false, next: false, confirm: false });
+  const [pwError, setPwError] = useState('');
+  const [pwDone, setPwDone] = useState(false);
+  const [pwBusy, setPwBusy] = useState(false);
+  const [confirmClear, setConfirmClear] = useState(false);
 
-  const [passwordData, setPasswordData] = useState({
-    currentPassword: '',
-    newPassword: '',
-    confirmPassword: '',
-  });
-
-  const [showPasswords, setShowPasswords] = useState({
-    current: false,
-    new: false,
-    confirm: false,
-  });
-
-  const [passwordError, setPasswordError] = useState('');
-  const [passwordSuccess, setPasswordSuccess] = useState(false);
-  const [isChangingPassword, setIsChangingPassword] = useState(false);
-
-  const sections = [
-    { id: 'profile', label: 'Profile', icon: User },
-    { id: 'security', label: 'Security & Password', icon: Lock },
-    { id: 'preferences', label: 'Preferences', icon: Bell },
-    { id: 'privacy', label: 'Privacy & Data', icon: Shield },
-  ];
-
-  const handleSaveProfile = async () => {
-    await updateProfile(formData);
+  const saveProfile = async () => {
+    await updateProfile(form);
     setSaved(true);
     setTimeout(() => setSaved(false), 2000);
   };
 
-  const handleInputChange = (e) => {
-    const { name, value } = e.target;
-    setFormData(prev => ({ ...prev, [name]: value }));
-  };
-
-  const handlePasswordChangeInput = (e) => {
-    const { name, value } = e.target;
-    setPasswordData(prev => ({ ...prev, [name]: value }));
-  };
-
-  const handlePasswordSubmit = async (e) => {
+  const submitPassword = async (e) => {
     e.preventDefault();
-    setPasswordError('');
-    setPasswordSuccess(false);
-
-    if (!passwordData.currentPassword || !passwordData.newPassword || !passwordData.confirmPassword) {
-      setPasswordError('Please fill in all fields.');
+    setPwError('');
+    setPwDone(false);
+    if (!pw.current || !pw.next || !pw.confirm) {
+      setPwError('Fill in all three fields.');
       return;
     }
-
-    if (passwordData.newPassword !== passwordData.confirmPassword) {
-      setPasswordError('New passwords do not match.');
+    if (pw.next !== pw.confirm) {
+      setPwError('New passwords do not match.');
       return;
     }
-
-    setIsChangingPassword(true);
-    const res = await changePassword(passwordData.currentPassword, passwordData.newPassword);
-    setIsChangingPassword(false);
-
+    setPwBusy(true);
+    const res = await changePassword(pw.current, pw.next);
+    setPwBusy(false);
     if (res.success) {
-      setPasswordSuccess(true);
-      setPasswordData({ currentPassword: '', newPassword: '', confirmPassword: '' });
-      setTimeout(() => setPasswordSuccess(false), 3000);
+      setPwDone(true);
+      setPw({ current: '', next: '', confirm: '' });
+      setTimeout(() => setPwDone(false), 3000);
     } else {
-      setPasswordError(res.error || 'Failed to change password.');
+      setPwError(res.error || 'Could not change password.');
     }
   };
 
-  const togglePasswordVisibility = (field) => {
-    setShowPasswords(prev => ({ ...prev, [field]: !prev[field] }));
-  };
-
-  const renderSection = () => {
-    switch (activeSection) {
-      case 'profile':
-        return (
-          <div className="space-y-6">
-            <div>
-              <h3 className="text-lg font-semibold text-zinc-900 dark:text-zinc-100 mb-6">Profile Settings</h3>
-              
-              <div className="flex items-center gap-6 mb-8">
-                <div className="w-20 h-20 bg-gradient-to-br from-zinc-700 to-zinc-900 dark:from-zinc-800 dark:to-zinc-950 rounded-2xl flex items-center justify-center text-zinc-100 text-2xl font-bold shadow-xl border border-zinc-200 dark:border-zinc-800">
-                  {user?.name?.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2) || 'US'}
-                </div>
-                <div>
-                  <p className="font-semibold text-zinc-900 dark:text-zinc-100">{user?.name || 'User'}</p>
-                  <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-1">Local Session Account</p>
-                </div>
-              </div>
-            </div>
-
-            <div className="grid md:grid-cols-2 gap-4">
-              <div>
-                <label className="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-2">Full Name</label>
-                <input
-                  type="text"
-                  name="name"
-                  value={formData.name}
-                  onChange={handleInputChange}
-                  className="w-full px-4 py-2.5 text-zinc-900 dark:text-zinc-100 bg-white dark:bg-zinc-900/60 border border-zinc-200 dark:border-zinc-800 rounded-lg focus:ring-2 focus:ring-zinc-500 focus:border-transparent transition-all"
-                  placeholder="Enter your name"
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-2">Email Address</label>
-                <input
-                  type="email"
-                  name="email"
-                  value={formData.email}
-                  onChange={handleInputChange}
-                  className="w-full px-4 py-2.5 text-zinc-900 dark:text-zinc-100 bg-white dark:bg-zinc-900/60 border border-zinc-200 dark:border-zinc-800 rounded-lg focus:ring-2 focus:ring-zinc-500 focus:border-transparent transition-all"
-                  placeholder="Enter your email"
-                />
-              </div>
-            </div>
-
-            <button 
-              onClick={handleSaveProfile} 
-              className="inline-flex items-center gap-2 px-6 py-2.5 bg-zinc-900 hover:bg-zinc-800 dark:bg-zinc-100 dark:hover:bg-zinc-200 text-white dark:text-zinc-950 font-medium rounded-lg transition-colors shadow-lg"
-            >
-              {saved ? <Check size={18} /> : <Save size={18} />}
-              {saved ? 'Saved!' : 'Save Changes'}
-            </button>
-          </div>
-        );
-
-      case 'security':
-        return (
-          <form onSubmit={handlePasswordSubmit} className="space-y-6">
-            <div>
-              <h3 className="text-lg font-semibold text-zinc-900 dark:text-zinc-100 mb-2">Change Password</h3>
-              <p className="text-sm text-zinc-500 dark:text-zinc-400 mb-6">Securely update your password details below.</p>
-            </div>
-
-            {passwordError && (
-              <div className="p-3 bg-red-50 dark:bg-red-950/20 border border-red-200 dark:border-red-800/50 text-red-700 dark:text-red-400 rounded-lg text-sm">
-                {passwordError}
-              </div>
-            )}
-
-            {passwordSuccess && (
-              <div className="p-3 bg-green-50 dark:bg-green-950/20 border border-green-200 dark:border-green-800/50 text-green-700 dark:text-green-400 rounded-lg text-sm">
-                Password changed successfully!
-              </div>
-            )}
-
-            <div className="space-y-4 max-w-md">
-              <div>
-                <label className="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-2">Current Password</label>
-                <div className="relative">
-                  <input
-                    type={showPasswords.current ? 'text' : 'password'}
-                    name="currentPassword"
-                    value={passwordData.currentPassword}
-                    onChange={handlePasswordChangeInput}
-                    className="w-full pl-4 pr-10 py-2.5 text-zinc-900 dark:text-zinc-100 bg-white dark:bg-zinc-900/60 border border-zinc-200 dark:border-zinc-800 rounded-lg focus:ring-2 focus:ring-zinc-500 focus:border-transparent transition-all"
-                    placeholder="••••••••"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => togglePasswordVisibility('current')}
-                    className="absolute right-3 top-1/2 -translate-y-1/2 text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300"
-                  >
-                    {showPasswords.current ? <EyeOff size={18} /> : <Eye size={18} />}
-                  </button>
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-2">New Password</label>
-                <div className="relative">
-                  <input
-                    type={showPasswords.new ? 'text' : 'password'}
-                    name="newPassword"
-                    value={passwordData.newPassword}
-                    onChange={handlePasswordChangeInput}
-                    className="w-full pl-4 pr-10 py-2.5 text-zinc-900 dark:text-zinc-100 bg-white dark:bg-zinc-900/60 border border-zinc-200 dark:border-zinc-800 rounded-lg focus:ring-2 focus:ring-zinc-500 focus:border-transparent transition-all"
-                    placeholder="••••••••"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => togglePasswordVisibility('new')}
-                    className="absolute right-3 top-1/2 -translate-y-1/2 text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300"
-                  >
-                    {showPasswords.new ? <EyeOff size={18} /> : <Eye size={18} />}
-                  </button>
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-2">Confirm New Password</label>
-                <div className="relative">
-                  <input
-                    type={showPasswords.confirm ? 'text' : 'password'}
-                    name="confirmPassword"
-                    value={passwordData.confirmPassword}
-                    onChange={handlePasswordChangeInput}
-                    className="w-full pl-4 pr-10 py-2.5 text-zinc-900 dark:text-zinc-100 bg-white dark:bg-zinc-900/60 border border-zinc-200 dark:border-zinc-800 rounded-lg focus:ring-2 focus:ring-zinc-500 focus:border-transparent transition-all"
-                    placeholder="••••••••"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => togglePasswordVisibility('confirm')}
-                    className="absolute right-3 top-1/2 -translate-y-1/2 text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300"
-                  >
-                    {showPasswords.confirm ? <EyeOff size={18} /> : <Eye size={18} />}
-                  </button>
-                </div>
-              </div>
-            </div>
-
-            <button 
-              type="submit"
-              disabled={isChangingPassword}
-              className="inline-flex items-center gap-2 px-6 py-2.5 bg-zinc-900 hover:bg-zinc-800 dark:bg-zinc-100 dark:hover:bg-zinc-200 text-white dark:text-zinc-950 font-medium rounded-lg transition-colors shadow-lg disabled:opacity-50"
-            >
-              <Lock size={18} />
-              {isChangingPassword ? 'Updating...' : 'Update Password'}
-            </button>
-          </form>
-        );
-
-      case 'preferences':
-        return (
-          <div className="space-y-6">
-            <h3 className="text-lg font-semibold text-zinc-900 dark:text-zinc-100 mb-6">Preferences</h3>
-            
-            <div className="space-y-3">
-              <Toggle
-                enabled={settings.darkMode}
-                onChange={toggleDarkMode}
-                label="Dark Theme"
-                description={settings.darkMode ? 'Neutral charcoal theme is active' : 'Light theme is active'}
-                icon={settings.darkMode ? Moon : Sun}
-              />
-
-              <Toggle
-                enabled={settings.notifications}
-                onChange={() => updateSettings({ notifications: !settings.notifications })}
-                label="Push Notifications"
-                description="Receive health alerts and analysis updates"
-                icon={Bell}
-              />
-
-              <Toggle
-                enabled={settings.autoSaveHistory}
-                onChange={() => updateSettings({ autoSaveHistory: !settings.autoSaveHistory })}
-                label="Auto-save History"
-                description="Automatically save diagnostics to local device"
-                icon={Save}
-              />
-            </div>
-          </div>
-        );
-
-      case 'privacy':
-        return (
-          <div className="space-y-6">
-            <h3 className="text-lg font-semibold text-zinc-900 dark:text-zinc-100 mb-6">Privacy & Data</h3>
-            
-            <div className="p-4 bg-zinc-100 dark:bg-zinc-900/60 rounded-xl border border-zinc-200 dark:border-zinc-800">
-              <div className="flex items-start gap-3">
-                <Lock className="text-zinc-700 dark:text-zinc-400 mt-0.5" size={20} />
-                <div>
-                  <p className="font-medium text-zinc-900 dark:text-zinc-200">Your Data is Secure</p>
-                  <p className="text-sm text-zinc-600 dark:text-zinc-400 mt-1">
-                    All your diagnosis history is stored locally on your device. We do not store 
-                    any personal health information or raw passwords on our servers.
-                  </p>
-                </div>
-              </div>
-            </div>
-
-            <div className="p-4 border border-zinc-200 dark:border-zinc-800 rounded-xl bg-white dark:bg-zinc-900/20">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="font-medium text-zinc-900 dark:text-zinc-100">Diagnosis History</p>
-                  <p className="text-sm text-zinc-500 dark:text-zinc-400">{history.length} records stored locally</p>
-                </div>
-                <button 
-                  onClick={() => setShowClearConfirm(true)}
-                  className="px-4 py-2 text-sm font-medium text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-950/20 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
-                  disabled={history.length === 0}
-                >
-                  <Trash2 size={16} />
-                  Clear All
-                </button>
-              </div>
-            </div>
-          </div>
-        );
-
-      default:
-        return null;
-    }
-  };
+  const pwField = (key, label) => (
+    <div>
+      <label className="label">{label}</label>
+      <div className="relative">
+        <input
+          type={show[key] ? 'text' : 'password'}
+          value={pw[key]}
+          onChange={(e) => setPw({ ...pw, [key]: e.target.value })}
+          placeholder="••••••••"
+          autoComplete="new-password"
+          className="field !pr-11"
+        />
+        <button
+          type="button"
+          onClick={() => setShow({ ...show, [key]: !show[key] })}
+          className="absolute right-3 top-1/2 -translate-y-1/2 rounded-md p-1 text-faint hover:text-ink"
+          aria-label="Toggle visibility"
+        >
+          {show[key] ? <EyeOff size={16} /> : <Eye size={16} />}
+        </button>
+      </div>
+    </div>
+  );
 
   return (
-    <div className="space-y-6 animate-fade-in max-w-4xl mx-auto">
-      <div>
-        <h1 className="text-3xl font-bold text-zinc-900 dark:text-zinc-100 mb-2">Settings</h1>
-        <p className="text-zinc-500 dark:text-zinc-400">Manage your local profile details and preferences.</p>
-      </div>
+    <div className="space-y-5">
+      <PageHeader
+        eyebrow="Workspace"
+        title="Settings"
+        description="Profile, security and how the app behaves."
+      />
 
-      <div className="grid lg:grid-cols-4 gap-6">
-        <div className="lg:col-span-1">
-          <nav className="space-y-1">
-            {sections.map((section) => (
-              <button
-                key={section.id}
-                onClick={() => setActiveSection(section.id)}
-                className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-left transition-all font-medium ${
-                  activeSection === section.id
-                    ? 'bg-zinc-100 dark:bg-zinc-900/60 text-zinc-900 dark:text-zinc-100 shadow-sm border border-zinc-200 dark:border-zinc-800'
-                    : 'text-zinc-600 dark:text-zinc-400 hover:bg-zinc-50 dark:hover:bg-zinc-900/40 border border-transparent'
-                }`}
-              >
-                <section.icon size={20} />
-                {section.label}
-              </button>
-            ))}
+      <div className="grid items-stretch gap-5 lg:grid-cols-12">
+        <Reveal className="lg:col-span-3">
+          <nav className="panel flex gap-1 overflow-x-auto p-1.5 lg:h-full lg:flex-col no-scrollbar">
+            {SECTIONS.map((s) => {
+              const active = section === s.id;
+              return (
+                <button
+                  key={s.id}
+                  onClick={() => setSection(s.id)}
+                  className={`relative flex shrink-0 items-center gap-2.5 rounded-lg px-3.5 py-2.5 text-sm transition-colors lg:w-full ${
+                    active ? 'font-medium text-ink' : 'text-muted hover:text-ink'
+                  }`}
+                >
+                  {active && (
+                    <Motion.span
+                      layoutId="settings-active"
+                      transition={spring}
+                      className="absolute inset-0 rounded-lg bg-ink/[0.06] dark:bg-white/[0.08]"
+                    />
+                  )}
+                  <s.icon size={16} className="relative z-10" />
+                  <span className="relative z-10">{s.label}</span>
+                </button>
+              );
+            })}
           </nav>
-        </div>
+        </Reveal>
 
-        <div className="lg:col-span-3">
-          <div className="bg-white dark:bg-zinc-950 rounded-xl border border-zinc-200 dark:border-zinc-800 p-6 shadow-sm">
-            {renderSection()}
+        <Reveal delay={0.06} className="h-full lg:col-span-9">
+          <div className="panel min-h-[calc(100vh-240px)] p-6 sm:p-8">
+            <AnimatePresence mode="wait" initial={false}>
+              <Motion.div
+                key={section}
+                initial={{ opacity: 0, y: 8 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -6 }}
+                transition={{ duration: 0.2 }}
+              >
+                {section === 'profile' && (
+                  <div className="max-w-lg">
+                    <h3 className="text-base font-semibold text-ink">Profile</h3>
+                    <p className="mb-5 mt-0.5 text-sm text-muted">Stored locally on this device.</p>
+                    <div className="mb-6 flex items-center gap-4">
+                      <span className="t-num flex h-16 w-16 items-center justify-center rounded-2xl bg-ink text-xl text-paper font-semibold dark:bg-white dark:text-black">
+                        {(form.name || 'U')
+                          .split(' ')
+                          .map((n) => n[0])
+                          .join('')
+                          .toUpperCase()
+                          .slice(0, 2)}
+                      </span>
+                      <div>
+                        <p className="text-base font-medium text-ink">{form.name || 'Your name'}</p>
+                        <p className="text-[13px] text-faint">{form.email || 'No email set'}</p>
+                        {user?.createdAt && (
+                          <p className="mt-0.5 text-[13px] text-faint">
+                            Member since{' '}
+                            {new Date(user.createdAt).toLocaleDateString('en-US', {
+                              month: 'short',
+                              year: 'numeric',
+                            })}
+                          </p>
+                        )}
+                      </div>
+                    </div>
+                    <div className="grid gap-3 sm:grid-cols-2">
+                      <div>
+                        <label className="label">Full name</label>
+                        <input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} className="field" />
+                      </div>
+                      <div>
+                        <label className="label">Email</label>
+                        <input type="email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} className="field" />
+                      </div>
+                    </div>
+                    <button onClick={saveProfile} className="btn-primary mt-4">
+                      {saved ? <><Check size={16} /> Saved</> : 'Save changes'}
+                    </button>
+                  </div>
+                )}
+
+                {section === 'security' && (
+                  <form onSubmit={submitPassword} className="max-w-md">
+                    <h3 className="text-base font-semibold text-ink">Change password</h3>
+                    <p className="mb-5 mt-0.5 text-sm text-muted">Hashed with bcrypt before it ever touches storage.</p>
+                    {pwError && (
+                      <p className="mb-3 rounded-xl bg-critical/[0.07] px-3.5 py-2.5 text-sm font-medium text-critical">
+                        {pwError}
+                      </p>
+                    )}
+                    {pwDone && (
+                      <p className="mb-3 rounded-xl bg-low/[0.09] px-3.5 py-2.5 text-sm font-medium text-low">
+                        Password changed.
+                      </p>
+                    )}
+                    <div className="space-y-3">
+                      {pwField('current', 'Current password')}
+                      {pwField('next', 'New password')}
+                      {pwField('confirm', 'Confirm new password')}
+                    </div>
+                    <button type="submit" disabled={pwBusy} className="btn-primary mt-4">
+                      {pwBusy ? 'Updating…' : 'Update password'}
+                    </button>
+                  </form>
+                )}
+
+                {section === 'preferences' && (
+                  <div className="max-w-xl">
+                    <h3 className="text-base font-semibold text-ink">Preferences</h3>
+                    <p className="mb-5 mt-0.5 text-sm text-muted">How the app looks and behaves.</p>
+                    <div className="space-y-2.5">
+                      <Switch
+                        on={theme === 'dark'}
+                        onToggle={toggleTheme}
+                        label="Dark theme"
+                        desc={theme === 'dark' ? 'Charcoal surfaces, low glare' : 'Warm paper surfaces'}
+                        icon={theme === 'dark' ? Moon : Sun}
+                      />
+                      <Switch
+                        on={!!settings.notifications}
+                        onToggle={() => updateSettings({ notifications: !settings.notifications })}
+                        label="Notifications"
+                        desc="Toast confirmations for actions and results"
+                        icon={Bell}
+                      />
+                      <Switch
+                        on={settings.autoSaveHistory !== false}
+                        onToggle={() => updateSettings({ autoSaveHistory: settings.autoSaveHistory === false })}
+                        label="Auto-save history"
+                        desc="Log every check to this device automatically"
+                        icon={HistoryIcon}
+                      />
+                    </div>
+                  </div>
+                )}
+
+                {section === 'data' && (
+                  <div className="max-w-xl">
+                    <h3 className="text-base font-semibold text-ink">Privacy & data</h3>
+                    <p className="mb-5 mt-0.5 text-sm text-muted">Everything stays in your browser.</p>
+                    <div className="flex items-start gap-3 rounded-xl border border-line bg-paper px-4 py-3.5">
+                      <ShieldCheck size={17} className="mt-0.5 shrink-0 text-low" />
+                      <div>
+                        <p className="text-[15px] font-medium text-ink">Local-only storage</p>
+                        <p className="mt-0.5 text-sm leading-relaxed text-muted">
+                          Diagnosis history and credentials live in this browser's local storage.
+                          Clearing site data erases them. Export a backup from History first.
+                        </p>
+                      </div>
+                    </div>
+                    <div className="mt-2.5 flex items-center justify-between gap-4 rounded-xl border border-line px-4 py-3.5">
+                      <div>
+                        <p className="text-[15px] font-medium text-ink">Diagnosis history</p>
+                        <p className="t-num text-sm text-muted">{history.length} records stored</p>
+                      </div>
+                      <button
+                        onClick={() => setConfirmClear(true)}
+                        disabled={history.length === 0}
+                        className="btn-danger-quiet btn-sm"
+                      >
+                        <Trash2 size={14} /> Clear all
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </Motion.div>
+            </AnimatePresence>
           </div>
-        </div>
+        </Reveal>
       </div>
 
-      {showClearConfirm && (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4" onClick={() => setShowClearConfirm(false)}>
-          <div className="bg-white dark:bg-zinc-900 rounded-2xl p-6 max-w-md w-full border border-zinc-200 dark:border-zinc-800 shadow-2xl animate-scale-in" onClick={(e) => e.stopPropagation()}>
-            <div className="flex items-center gap-3 mb-4">
-              <div className="w-12 h-12 bg-red-100 dark:bg-red-950/30 rounded-full flex items-center justify-center">
-                <Trash2 className="text-red-600 dark:text-red-400" size={24} />
-              </div>
-              <div>
-                <h3 className="text-lg font-semibold text-zinc-900 dark:text-zinc-100">Clear All Data</h3>
-                <p className="text-sm text-zinc-500 dark:text-zinc-400">This action cannot be undone</p>
-              </div>
-            </div>
-            <p className="text-zinc-600 dark:text-zinc-400 mb-6">
-              Are you sure you want to delete all your diagnosis history? 
-              This will permanently remove {history.length} records.
-            </p>
-            <div className="flex gap-3">
-              <button
-                onClick={() => setShowClearConfirm(false)}
-                className="flex-1 px-4 py-2.5 font-medium text-zinc-700 dark:text-zinc-300 bg-zinc-100 dark:bg-zinc-800 rounded-lg hover:bg-zinc-200 dark:hover:bg-zinc-700 transition-colors"
-              >
-                Cancel
+      <AnimatePresence>
+        {confirmClear && (
+          <Modal onClose={() => setConfirmClear(false)}>
+            <ModalHeader
+              title="Clear all history?"
+              subtitle={`${history.length} records will be permanently removed.`}
+              onClose={() => setConfirmClear(false)}
+            />
+            <div className="flex gap-2.5 p-5">
+              <button onClick={() => setConfirmClear(false)} className="btn-ghost flex-1">
+                Keep
               </button>
               <button
                 onClick={() => {
                   clearHistory();
-                  setShowClearConfirm(false);
+                  setConfirmClear(false);
                 }}
-                className="flex-1 px-4 py-2.5 font-medium text-white bg-red-600 hover:bg-red-700 rounded-lg transition-colors shadow-lg"
+                className="btn flex-1 bg-critical px-4 py-2.5 text-white hover:brightness-110"
               >
-                Delete All
+                Delete all
               </button>
             </div>
-          </div>
-        </div>
-      )}
+          </Modal>
+        )}
+      </AnimatePresence>
     </div>
   );
 }
-
-export default Settings;

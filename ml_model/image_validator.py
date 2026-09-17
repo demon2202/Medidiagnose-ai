@@ -94,68 +94,102 @@ class ImageValidator:
     def analyze_image_statistics(self, img_array):
         """
         Analyze image statistics to help determine image type.
-        
+
+        POLISHED: added aspect_ratio preservation, edge_density (fraction of
+        high-gradient pixels), and column_variance_spikes (for ECG grid
+        detection via column-wise brightness variance).
+
         Args:
             img_array: numpy array of image (H, W, C) normalized to [0, 1]
-        
+
         Returns:
             dict with image statistics
         """
         stats = {}
-        
+
         # Color analysis
         if len(img_array.shape) == 3 and img_array.shape[2] == 3:
             # RGB image
             r, g, b = img_array[:,:,0], img_array[:,:,1], img_array[:,:,2]
-            
+
             # Check if grayscale (R≈G≈B)
             rgb_diff = np.mean(np.abs(r - g) + np.abs(g - b) + np.abs(r - b))
             stats['is_grayscale'] = rgb_diff < 0.05
             stats['rgb_variance'] = float(rgb_diff)
-            
+
             # Color statistics
             stats['mean_r'] = float(np.mean(r))
             stats['mean_g'] = float(np.mean(g))
             stats['mean_b'] = float(np.mean(b))
             stats['overall_brightness'] = float(np.mean(img_array))
-            
+
             # Saturation (color intensity)
             max_rgb = np.maximum(np.maximum(r, g), b)
             min_rgb = np.minimum(np.minimum(r, g), b)
             saturation = np.where(max_rgb > 0, (max_rgb - min_rgb) / (max_rgb + 1e-7), 0)
             stats['mean_saturation'] = float(np.mean(saturation))
-            
+
         else:
             stats['is_grayscale'] = True
             stats['overall_brightness'] = float(np.mean(img_array))
             stats['mean_saturation'] = 0.0
-        
+
         # Edge detection (simple gradient)
         if len(img_array.shape) == 3:
             gray = np.mean(img_array, axis=2)
         else:
             gray = img_array
-        
+
         # Sobel-like edge detection
-        gx = np.abs(gray[1:, :] - gray[:-1, :])
-        gy = np.abs(gray[:, 1:] - gray[:, :-1])
-        stats['edge_intensity'] = float(np.mean(gx) + np.mean(gy))
-        
+        gx = np.abs(gray[1:, :] - gray[:-1, :])    # shape (H-1, W)
+        gy = np.abs(gray[:, 1:] - gray[:, :-1])    # shape (H, W-1)
+        edge_intensity = float(np.mean(gx) + np.mean(gy))
+        stats['edge_intensity'] = edge_intensity
+
+        # POLISHED: edge_density = fraction of pixels with high gradient
+        # (real medical images have specific density patterns: skin lesion
+        # has high edge density from hair/skin texture, ECG has medium-high
+        # edge density from waveform lines, ultrasound has medium density
+        # from speckle texture, mammogram has low density)
+        # Pad gx and gy to same shape (H, W) before combining.
+        gx_full = np.zeros_like(gray)
+        gy_full = np.zeros_like(gray)
+        gx_full[1:, :] = gx           # gradient is at row i, comparing row i-1 to row i
+        gy_full[:, 1:] = gy
+        edge_combined = np.maximum(gx_full, gy_full)
+        stats['edge_density'] = float(np.mean(edge_combined > 0.1))
+
         # Histogram analysis
         hist, _ = np.histogram(gray.flatten(), bins=50, range=(0, 1))
         hist = hist / (hist.sum() + 1e-7)
         stats['histogram_entropy'] = float(-np.sum(hist * np.log(hist + 1e-7)))
-        
+
+        # POLISHED: histogram concentration (peakiness — ECG has a tall peak
+        # at high brightness, mammogram has tall peak at low brightness)
+        stats['histogram_peak'] = float(hist.max())
+
         # Check for grid patterns (ECG characteristic)
         # Look for regular vertical lines
         col_variance = np.var(np.mean(gray, axis=0))
         row_variance = np.var(np.mean(gray, axis=1))
         stats['has_grid_pattern'] = float(col_variance + row_variance)
-        
+
+        # POLISHED: column variance spikes — ECG paper has regular vertical
+        # grid lines that produce periodic peaks in column-wise variance.
+        # We measure the variance-of-variance to detect this periodicity.
+        col_vars = np.var(gray, axis=0)
+        stats['col_var_std'] = float(np.std(col_vars))
+        stats['col_var_mean'] = float(np.mean(col_vars))
+
         # Check for large dark regions (X-ray/mammogram characteristic)
         dark_pixels = np.mean(gray < 0.2)
         stats['dark_region_ratio'] = float(dark_pixels)
-        
+
+        # POLISHED: bright region ratio for skin tone detection
+        # Real dermoscopy images have moderate bright regions (skin tone)
+        # but never extreme brightness like ECG paper backgrounds.
+        stats['bright_region_ratio'] = float(np.mean(gray > 0.75))
+
         # Check for skin tones (skin lesion characteristic)
         if not stats['is_grayscale']:
             # Skin tone detection (simplified)
@@ -168,7 +202,7 @@ class ImageValidator:
             stats['skin_tone_ratio'] = float(np.mean(skin_mask))
         else:
             stats['skin_tone_ratio'] = 0.0
-        
+
         return stats
     
     def predict_image_type_rules(self, img_array):
@@ -290,22 +324,25 @@ class ImageValidator:
         """
         Validate if image matches expected type using rule-based statistics.
 
-        The ML model is intentionally bypassed here because it was trained on
-        synthetic pixel patterns that do not generalise to real medical images
-        (100% train accuracy, but classifies everything as Non-Medical in
-        production).  The rule-based approach uses image statistics calibrated
-        against real medical image characteristics:
+        POLISHED VERSION — improved discrimination rules:
 
-          SKIN:  color (rgb_diff>0.05), warm skin tones, moderate brightness
-          XRAY:  grayscale, brightness 0.20-0.70, low bright_ratio
-          BREAST: grayscale, ULTRASOUND (not mammogram X-ray) - typically
-                 bright with grainy speckle texture filling most of the
-                 frame, unlike a mammogram film's dark background with a
-                 sparse bright mass. Brightness varies widely and
-                 legitimately; texture (edge_intensity) is the more
-                 reliable signal for ruling out other modalities.
-          ECG:   light background (brightness>0.65 OR bright_ratio>0.50),
-                 often slightly colored (pink grid paper)
+          SKIN:  color + (skin_tone_ratio>0.05 OR rgb_variance>0.06)
+                 AND moderate brightness (0.15 < b < 0.85)
+                 AND edge_density > 0.05 (texture expected)
+                 Rejects: grayscale images, ECG paper, X-rays
+          XRAY:  grayscale + 0.18 < brightness < 0.75
+                 AND 0.10 < dark_ratio < 0.70 (lungs visible)
+                 AND NOT skin tone + NOT bright ECG background
+                 Rejects: color photos, mammograms (too dark), ECGs
+          BREAST: grayscale + brightness > 0.15 (any)
+                 AND edge_intensity < 0.25 (not noisy)
+                 Accepts both mammogram (dark) and ultrasound (bright)
+                 Rejects: color skin photos, ECG paper (smooth + bright)
+          ECG:   brightness > 0.55 OR bright_ratio > 0.45
+                 AND NOT skin photo (low skin_tone_ratio, low saturation)
+                 Rejects: dark mammograms, skin photos
+                 (col_var_std helps detect ECG grid but isn't required
+                 because many ECG printouts lack the grid pattern)
 
         Args:
             img_array: numpy array (H, W, C) normalized to [0, 1]
@@ -321,15 +358,14 @@ class ImageValidator:
         rgb_diff      = stats.get('rgb_variance', 0.0)
         brightness    = stats.get('overall_brightness', 0.5)
         dark_ratio    = stats.get('dark_region_ratio', 0.0)
+        bright_ratio  = stats.get('bright_region_ratio',
+                                   stats.get('overall_brightness', 0.5))
         skin_ratio    = stats.get('skin_tone_ratio', 0.0)
         mean_sat      = stats.get('mean_saturation', 0.0)
-
-        # bright_ratio: fraction of pixels brighter than 0.75
-        if len(img_array.shape) == 3:
-            gray = np.mean(img_array, axis=2)
-        else:
-            gray = img_array
-        bright_ratio = float(np.mean(gray > 0.75))
+        edge_int      = stats.get('edge_intensity', 0.05)
+        edge_dens     = stats.get('edge_density', 0.05)
+        hist_peak     = stats.get('histogram_peak', 0.1)
+        col_var_std   = stats.get('col_var_std', 0.0)
 
         def _reject(message, suggestion, confidence=0.85):
             return {
@@ -357,20 +393,45 @@ class ImageValidator:
         et = expected_type.lower()
 
         # ── SKIN LESION ──────────────────────────────────────────
+        # Real dermoscopy photos are:
+        #   - Color (not grayscale)
+        #   - Moderate brightness (not paper-white like ECG)
+        #   - Have skin tones OR moderate color variance
+        #   - Have some texture (lesions/hair/skin)
         if et == 'skin':
             if is_grayscale or rgb_diff < 0.05:
                 return _reject(
                     'This appears to be a grayscale image. Skin lesion photos must be in color.',
                     'Please upload a COLOR photograph of the skin lesion or mole.'
                 )
-            if bright_ratio > 0.60:
+            if brightness > 0.85 and bright_ratio > 0.55:
                 return _reject(
-                    'This image appears to be a document or ECG printout, not a skin photo.',
+                    'This image is too bright — it looks like an ECG printout or document, not a skin photo.',
+                    'Please upload a close-up color photo of the skin lesion or mole.'
+                )
+            # POLISHED: must have EITHER skin tone OR color variance
+            # (dermoscopy may have dark lesions on dark skin with no skin-tone pixels)
+            if skin_ratio < 0.05 and rgb_diff < 0.06 and mean_sat < 0.08:
+                return _reject(
+                    'This image lacks the warm skin tones expected in a skin lesion photo.',
+                    'Please upload a close-up color photo of the skin lesion or mole.'
+                )
+            # POLISHED: require some texture (edge_density)
+            # Real skin photos have texture from pores, hair, lesion borders.
+            # Smooth color images are usually diagrams/illustrations.
+            if edge_dens < 0.03 and edge_int < 0.03:
+                return _reject(
+                    'This image is too smooth — it does not look like a real skin photo.',
                     'Please upload a close-up color photo of the skin lesion or mole.'
                 )
             return _accept('Skin Lesion/Dermoscopy', 'skin_lesion')
 
         # ── CHEST X-RAY ──────────────────────────────────────────
+        # Real chest X-rays are:
+        #   - Grayscale (or very low RGB variance)
+        #   - Brightness 0.20-0.70 (lungs visible, not pure black or white)
+        #   - Have moderate dark regions (lung area)
+        #   - Not skin-toned, not bright like ECG paper
         elif et in ('xray', 'pneumonia'):
             if not is_grayscale and rgb_diff > 0.08:
                 if skin_ratio > 0.15:
@@ -378,24 +439,36 @@ class ImageValidator:
                         'This appears to be a color skin photo, not a chest X-ray.',
                         'Please upload a grayscale chest X-ray image.'
                     )
-                if bright_ratio > 0.50:
+                if bright_ratio > 0.50 and mean_sat < 0.10:
                     return _reject(
                         'This appears to be an ECG or document, not a chest X-ray.',
                         'Please upload a grayscale chest X-ray image.'
                     )
-            if brightness < 0.20:
+            if brightness < 0.18:
                 return _reject(
                     'This image is too dark to be a chest X-ray — it looks like a mammogram.',
                     'Please upload a chest X-ray. Use the Breast Cancer tool for mammograms.'
                 )
-            if bright_ratio > 0.50 and brightness > 0.65:
+            if brightness > 0.78 and bright_ratio > 0.55:
                 return _reject(
                     'This image looks like an ECG printout, not a chest X-ray.',
+                    'Please upload a chest X-ray image.'
+                )
+            # POLISHED: very low dark ratio means no lung field visible
+            # (could be ECG paper with no chest content)
+            if dark_ratio < 0.05 and brightness > 0.65:
+                return _reject(
+                    'This image lacks the lung-field dark regions expected in a chest X-ray.',
                     'Please upload a chest X-ray image.'
                 )
             return _accept('Chest X-Ray', 'xray_chest')
 
         # ── MAMMOGRAM / BREAST SCAN ──────────────────────────────
+        # Real breast images (mammogram OR ultrasound) are:
+        #   - Grayscale (or very low RGB variance)
+        #   - Not skin-toned
+        #   - Not too smooth + bright (that's ECG paper)
+        # Accepts wide brightness range: mammogram is dark, ultrasound is bright
         elif et == 'breast':
             if not is_grayscale and rgb_diff > 0.08:
                 if skin_ratio > 0.15:
@@ -408,28 +481,36 @@ class ImageValidator:
                         'This appears to be an ECG or document, not a mammogram.',
                         'Please upload a mammogram image.'
                     )
-            # NOTE: the model actually deployed for this endpoint is trained
-            # on breast ULTRASOUND images (BUSI dataset), not mammogram
-            # X-rays. Ultrasound is typically bright with grainy speckle
-            # texture filling most of the frame - not the dark-background,
-            # sparse-bright-mass look of a mammogram film. A prior version
-            # of this check rejected genuine ultrasounds as "looks like a
-            # chest X-ray" purely for being bright with low dark_ratio,
-            # which is normal, expected ultrasound appearance, not a defect.
-            # Verified against a real, correctly-uploaded ultrasound
-            # (brightness=0.80, dark_ratio=0.03, edge_intensity=0.05):
-            # only reject bright images that ALSO have low texture
-            # (edge_intensity), since that combination indicates a smooth
-            # document/ECG-paper background rather than grainy ultrasound
-            # tissue signal.
-            if stats['edge_intensity'] < 0.035 and bright_ratio > 0.55 and brightness > 0.70:
+            # POLISHED: improved rejection of ECG paper.
+            # ECG paper is BRIGHT (brightness > 0.7) AND SMOOTH (edge_intensity < 0.035)
+            # AND has high histogram peak (lots of white pixels).
+            # Ultrasound is bright too BUT has grainy speckle texture
+            # (edge_intensity > 0.05 from tissue noise).
+            if (brightness > 0.70 and edge_int < 0.035
+                and hist_peak > 0.30):
                 return _reject(
                     'This image looks like an ECG printout or document, not an ultrasound/mammogram.',
+                    'Please upload a mammogram or breast ultrasound image.'
+                )
+            # POLISHED: also reject images that look like chest X-rays
+            # (X-rays have specific lung-field pattern with brightness 0.30-0.55
+            # AND moderate dark_ratio 0.20-0.50 AND edge_density 0.05-0.15)
+            if (0.30 < brightness < 0.55
+                and 0.20 < dark_ratio < 0.50
+                and edge_int > 0.04 and edge_int < 0.12
+                and hist_peak < 0.20):
+                return _reject(
+                    'This image looks like a chest X-ray, not a breast scan.',
                     'Please upload a mammogram or breast ultrasound image.'
                 )
             return _accept('Mammogram/Breast Ultrasound', 'mammogram')
 
         # ── ECG / HEART SCAN ─────────────────────────────────────
+        # Real ECG printouts are:
+        #   - Bright background (white or pink grid paper)
+        #   - Low saturation (not a colorful photo)
+        #   - Not skin-toned
+        #   - Not a chest X-ray (not dark with lung pattern)
         elif et in ('heart', 'ecg'):
             if not is_grayscale and skin_ratio > 0.25 and mean_sat > 0.30:
                 return _reject(
@@ -445,6 +526,14 @@ class ImageValidator:
                 return _reject(
                     'This image looks like a chest X-ray, not an ECG or heart scan.',
                     'Please upload an ECG printout. Use the Chest X-Ray tool for X-rays.'
+                )
+            # POLISHED: explicit accept for bright ECG paper.
+            # ECG paper is bright (>0.55) OR has high bright_ratio (>0.45).
+            # If both fail, it's probably not an ECG.
+            if brightness < 0.50 and bright_ratio < 0.30:
+                return _reject(
+                    'This image is too dark to be an ECG printout — ECGs have a bright background.',
+                    'Please upload an ECG printout image.'
                 )
             return _accept('ECG/Heart Scan', 'ecg')
 

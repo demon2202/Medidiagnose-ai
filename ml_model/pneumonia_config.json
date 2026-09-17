@@ -5,25 +5,21 @@
     224,
     1
   ],
-  "preprocessing": "Grayscale, CLAHE enhanced, normalize to [0,1]",
+  "preprocessing": "Grayscale, plain resize, normalize to [0,1] (no CLAHE)",
   "note": "Model internally replicates 1ch to 3ch for MobileNetV2",
-  "num_classes": 1,
+  "num_classes": 2,
   "class_names": [
     "NORMAL",
     "PNEUMONIA"
   ],
-  "output_type": "sigmoid_binary",
-  "architecture": "MobileNetV2_transfer_learning_focal_loss",
-  "loss_function": "focal_loss(gamma=2.0, alpha=0.75)",
-  "optimal_threshold": 0.08010071516036987,
-  "accuracy": 0.375,
-  "precision": 0.0,
-  "recall": 0.0,
-  "auc": 0.5549035668373108,
+  "output_type": "softmax_2class",
+  "architecture": "MobileNetV2_transfer_learning_v3",
+  "optimal_threshold": 0.5,
+  "accuracy": 0.859375,
   "confusion_matrix": {
-    "TN": 234,
-    "FP": 0,
-    "FN": 390,
-    "TP": 0
+    "TN": 178,
+    "FP": 96,
+    "FN": 3,
+    "TP": 427
   }
 }

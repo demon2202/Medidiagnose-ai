@@ -1,0 +1,22 @@
+{
+  "model_type": "VotingClassifier(RF+ET+GB+LR+SVM) + SMOTE",
+  "feature_order": [
+    "radius_mean",
+    "texture_mean",
+    "perimeter_mean",
+    "area_mean",
+    "smoothness_mean",
+    "compactness_mean",
+    "concavity_mean",
+    "concave_points_mean",
+    "symmetry_mean",
+    "fractal_dimension_mean"
+  ],
+  "accuracy": 1.0,
+  "f1_malignant": 1.0,
+  "roc_auc": 1.0,
+  "cv_accuracy_mean": 0.9983333333333334,
+  "cv_accuracy_std": 0.003333333333333322,
+  "n_samples": 600,
+  "compatible_with": "server.py /predict-cancer endpoint"
+}

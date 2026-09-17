@@ -5,55 +5,106 @@
     224,
     1
   ],
-  "preprocessing": "Grayscale, CLAHE, percentile normalization to [0,1]",
+  "preprocessing": "Grayscale + resize + normalize to [0,1] (no CLAHE/sharpen)",
   "use_grayscale": true,
-  "num_classes": 3,
+  "num_classes": 6,
   "classes": {
     "0": {
       "code": "normal",
       "name": "Normal",
-      "severity": "healthy",
-      "description": "No abnormalities detected in breast tissue."
+      "birads": "BI-RADS 1",
+      "severity": "healthy"
     },
     "1": {
       "code": "benign",
-      "name": "Benign Tumor",
-      "severity": "low",
-      "description": "Non-cancerous growth detected."
+      "name": "Benign Finding",
+      "birads": "BI-RADS 2",
+      "severity": "low"
     },
     "2": {
+      "code": "probably_benign",
+      "name": "Probably Benign",
+      "birads": "BI-RADS 3",
+      "severity": "low"
+    },
+    "3": {
+      "code": "suspicious",
+      "name": "Suspicious",
+      "birads": "BI-RADS 4",
+      "severity": "moderate"
+    },
+    "4": {
+      "code": "highly_suggestive",
+      "name": "Highly Suggestive",
+      "birads": "BI-RADS 5",
+      "severity": "high"
+    },
+    "5": {
       "code": "malignant",
-      "name": "Malignant Tumor",
-      "severity": "critical",
-      "description": "Cancerous growth detected. Immediate attention required."
+      "name": "Malignant",
+      "birads": "BI-RADS 6",
+      "severity": "critical"
     }
   },
   "class_names": [
     "normal",
     "benign",
+    "prob_benign",
+    "suspicious",
+    "high_susp",
     "malignant"
   ],
-  "architecture": "transfer_mobilenetv2",
-  "accuracy": 0.403809517621994,
-  "precision": 0.4299516975879669,
-  "recall": 0.3390476107597351,
-  "auc": 0.5662104487419128,
-  "mean_confidence": 0.6433869004249573,
+  "architecture": "transfer_mobilenetv2_v3",
+  "training_notes": "Patient-level split, in-model augmentation, class_weight balanced, two-phase fine-tune (BN frozen)",
+  "accuracy": 0.8908045887947083,
   "confusion_matrix": [
     [
-      90,
-      39,
-      46
+      61,
+      4,
+      0,
+      0,
+      0,
+      0
     ],
     [
-      86,
-      47,
-      42
+      11,
+      164,
+      0,
+      0,
+      0,
+      12
     ],
     [
-      58,
-      42,
-      75
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    [
+      3,
+      8,
+      0,
+      0,
+      0,
+      85
     ]
   ]
 }

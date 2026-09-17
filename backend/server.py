@@ -76,6 +76,31 @@ try:
 except ImportError:
     logger.warning("⚠️ PIL not available")
 
+# ── v2 REDO: single-source preprocessing/preparation from ml_model ──────────
+# medidiagnose.inference_utils is the SAME code the v2 training scripts use,
+# so training-time and serving-time preprocessing can never diverge again.
+_REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+_ML_MODEL_DIR = os.path.join(_REPO_ROOT, 'ml_model')
+sys.path.insert(0, _ML_MODEL_DIR)   # for `import image_validator` (lives in ml_model/)
+sys.path.insert(0, _REPO_ROOT)      # for `from medidiagnose import ...` (lives at repo root,
+                                     # matching train_*.py's own sys.path.insert)
+MDI = None
+try:
+    from medidiagnose import inference_utils as MDI
+    logger.info("✅ medidiagnose v2 inference_utils loaded — train/serve preprocessing unified")
+except Exception as _mdi_err:
+    logger.warning(f"⚠️ medidiagnose v2 package not available: {_mdi_err}")
+
+# v2 image validator (same package directory as medidiagnose)
+IMAGE_VALIDATOR_V2 = None
+try:
+    import image_validator as _iv_v2
+    if hasattr(_iv_v2, 'validate_image_type'):
+        IMAGE_VALIDATOR_V2 = _iv_v2
+        logger.info("✅ image_validator v2 loaded — lenient evidence-based validation")
+except Exception as _iv_err:
+    logger.warning(f"⚠️ image_validator v2 not available: {_iv_err}")
+
 
 
 app = Flask(__name__)
@@ -842,7 +867,7 @@ def normalize_symptom(raw_symptom, symptom_list):
 #              IMAGE VALIDATION
 # ============================================================
 
-def validate_image_type(img_array, expected_type):
+def validate_image_type_legacy(img_array, expected_type):
     """
     Validate if uploaded image matches expected medical image type.
     Uses image statistics to distinguish between xray, mammogram, ECG, and skin images.
@@ -1067,6 +1092,18 @@ def validate_image_type(img_array, expected_type):
 #              HELPER FUNCTIONS
 # ============================================================
 
+
+def validate_image_type(img_array, expected_type):
+    """
+    v2 REDO: delegates to ml_model/image_validator.py (evidence-based,
+    lenient-by-design — no more valid X-rays rejected as "mammograms").
+    Falls back to the legacy logic only if the module is unavailable.
+    """
+    if IMAGE_VALIDATOR_V2 is not None:
+        return IMAGE_VALIDATOR_V2.validate_image_type(img_array, expected_type)
+    return validate_image_type_legacy(img_array, expected_type)
+
+
 def allowed_file(filename):
     return '.' in filename and filename.rsplit('.', 1)[1].lower() in Config.ALLOWED_EXTENSIONS
 
@@ -1095,7 +1132,9 @@ def get_raw_array_for_validation(image, target_size=(224, 224), mode='L'):
 
 
 def preprocess_image_for_skin(image, target_size=(224, 224)):
-    """Preprocess for skin model - RGB, normalized to [0,1]"""
+    """v2: delegates to medidiagnose.inference_utils (training-identical)."""
+    if MDI is not None:
+        return MDI.to_batch(MDI.preprocess_skin(image, target_size[0]))
     image = image.resize(target_size, Image.LANCZOS)
     image = image.convert('RGB')
     img_array = np.array(image, dtype=np.float32) / 255.0
@@ -1103,12 +1142,13 @@ def preprocess_image_for_skin(image, target_size=(224, 224)):
 
 
 def preprocess_image_for_xray(image, target_size=(224, 224)):
-    """Preprocess for pneumonia model - Grayscale, CLAHE enhanced, normalized to [0,1]"""
+    """v2: delegates to medidiagnose.inference_utils (deterministic numpy
+    CLAHE — identical at train and serve time, no cv2 dependency)."""
+    if MDI is not None:
+        return MDI.to_batch(MDI.preprocess_xray(image, target_size[0]))
     image = image.resize(target_size, Image.LANCZOS)
     image = image.convert('L')
     img_array = np.array(image, dtype=np.float32) / 255.0
-    
-    # Apply CLAHE to match model training preprocessing
     try:
         import cv2
         img_uint8 = (img_array * 255.0).astype(np.uint8)
@@ -1116,33 +1156,36 @@ def preprocess_image_for_xray(image, target_size=(224, 224)):
         img_array = clahe.apply(img_uint8).astype(np.float32) / 255.0
     except ImportError:
         pass
-        
     img_array = np.expand_dims(img_array, axis=-1)
     return np.expand_dims(img_array, axis=0)
 
 
 def preprocess_image_for_breast(image, target_size=(224, 224)):
-    """Preprocess for breast model - CLAHE-like enhancement, sharpen, normalized to [0,1]"""
+    """v2: delegates to medidiagnose.inference_utils (CLAHE + percentile
+    normalization — EXACTLY what train_breast_us_model.py used)."""
+    if MDI is not None:
+        return MDI.to_batch(MDI.preprocess_breast_us(image, target_size[0]))
     image = image.convert('L')
     from PIL import ImageEnhance, ImageFilter
     enhancer = ImageEnhance.Contrast(image)
     image = enhancer.enhance(1.3)
     image = image.filter(ImageFilter.SHARPEN)
     image = image.resize(target_size, Image.LANCZOS)
-    
     img_array = np.array(image, dtype=np.float32)
     p2, p98 = np.percentile(img_array, (2, 98))
     if p98 - p2 > 0:
         img_array = np.clip((img_array - p2) / (p98 - p2), 0, 1)
     else:
         img_array = img_array / 255.0
-        
     img_array = np.expand_dims(img_array, axis=-1)
     return np.expand_dims(img_array, axis=0)
 
 
-def preprocess_image_for_heart(image, target_size=(256, 256)):
-    """Preprocess for heart/ECG model - Grayscale, normalized to [0,1]"""
+def preprocess_image_for_heart(image, target_size=(224, 224)):
+    """v2: delegates to medidiagnose.inference_utils — 224×224 (was 256 —
+    that mismatch broke this endpoint), auto-inverts white ECG paper."""
+    if MDI is not None:
+        return MDI.to_batch(MDI.preprocess_ecg_image(image, target_size[0]))
     image = image.resize(target_size, Image.LANCZOS)
     image = image.convert('L')
     img_array = np.array(image, dtype=np.float32) / 255.0
@@ -1641,8 +1684,12 @@ def load_models():
                     # error in TensorFlow 2.18+ when loading older .h5 models.
                     # safe_mode=False is required in Keras 3 to load Lambda layers.
                     try:
-                        models[model_key] = keras.models.load_model(
-                            MODEL_PATHS[model_key], compile=False, safe_mode=False
+                        models[model_key] = (
+                            MDI.load_keras_model(MODEL_PATHS[model_key])
+                            if MDI is not None else
+                            keras.models.load_model(
+                                MODEL_PATHS[model_key], compile=False,
+                                safe_mode=False)
                         )
                     except TypeError:
                         models[model_key] = keras.models.load_model(
@@ -2379,171 +2426,25 @@ def analyze_breast():
         return jsonify({'success': False, 'error': str(e)}), 500
 
 
-def signal_file_to_image(file_path, file_ext, img_size=(256, 256)):
+def signal_file_to_image(file_path, file_ext, img_size=(224, 224)):
     """
-    Convert ECG signal file (.dat, .hea, .csv) to grayscale image
-    for the heart model to analyze.
+    Convert an ECG signal file (.dat, .hea, .csv) to the 224×224 grayscale
+    image the v2 ECG model was TRAINED on (medidiagnose.inference_utils.
+    signal_to_ecg_image — same renderer used in training, no matplotlib).
     """
     try:
-        import matplotlib
-        matplotlib.use('Agg')
-        import matplotlib.pyplot as plt
-        from io import BytesIO
+        if MDI is None:
+            return None, "medidiagnose v2 package required for signal files"
 
-        signal = None
-        lead_names = ['I', 'II', 'III', 'aVR', 'aVL', 'aVF',
-                       'V1', 'V2', 'V3', 'V4', 'V5', 'V6']
-
-        if file_ext in ['dat', 'hea'] and WFDB_AVAILABLE:
-            # WFDB format (.dat + .hea)
-            base_path = file_path
-            if base_path.endswith('.dat') or base_path.endswith('.hea'):
-                base_path = base_path.rsplit('.', 1)[0]
-
-            try:
-                record = wfdb.rdsamp(base_path)
-                signal = record[0]
-                if hasattr(record[1], 'sig_name') and record[1].sig_name:
-                    lead_names = record[1].sig_name
-                logger.info(f'wfdb.rdsamp succeeded: {signal.shape} samples')
-            except FileNotFoundError:
-                return None, (
-                    f'Could not find the .hea header for '
-                    f'"{os.path.basename(base_path)}.dat". '
-                    'Ensure both files share the same name '
-                    '(e.g. 00001_lr.dat + 00001_lr.hea).'
-                )
-            except Exception as wfdb_err:
-                logger.error(f'wfdb.rdsamp failed: {wfdb_err}')
-                return None, f'Failed to read ECG signal: {str(wfdb_err)}'
-
-        elif file_ext == 'csv':
-            # CSV format - each column is a lead
-            data = []
-            with open(file_path, 'r') as f:
-                reader = csv.reader(f)
-                header = next(reader, None)  # Try to read header
-
-                # Check if header is numeric (no header row)
-                if header:
-                    try:
-                        [float(x) for x in header]
-                        data.append([float(x) for x in header])  # It's data, not header
-                    except ValueError:
-                        lead_names = header[:12]  # Use as lead names
-
-                for row in reader:
-                    try:
-                        data.append([float(x) for x in row])
-                    except ValueError:
-                        continue
-
-            if data:
-                signal = np.array(data)
-
-        elif file_ext == 'dat' and not WFDB_AVAILABLE:
-            # Try to read raw binary .dat without wfdb
-            # Assume 16-bit signed integers, 12 leads
-            with open(file_path, 'rb') as f:
-                raw_data = f.read()
-
-            # Try to interpret as 16-bit signed integers
-            num_samples = len(raw_data) // (2 * 12)  # 2 bytes per sample, 12 leads
-            if num_samples > 0:
-                n_values = num_samples * 12
-                values = struct.unpack(f'<{n_values}h', raw_data[:n_values * 2])
-                signal = np.array(values, dtype=np.float32).reshape(num_samples, 12)
-            else:
-                # Try with fewer leads
-                for n_leads in [12, 8, 3, 2, 1]:
-                    num_samples = len(raw_data) // (2 * n_leads)
-                    if num_samples > 100:
-                        n_values = num_samples * n_leads
-                        try:
-                            values = struct.unpack(f'<{n_values}h',
-                                                   raw_data[:n_values * 2])
-                            signal = np.array(values, dtype=np.float32).reshape(
-                                num_samples, n_leads)
-                            lead_names = lead_names[:n_leads]
-                            break
-                        except Exception:
-                            continue
-
+        signal, lead_names, err = MDI.read_signal_file(file_path, file_ext)
+        if err:
+            return None, err
         if signal is None or len(signal) < 50:
-            return None, "Could not parse signal file. Ensure it's a valid ECG format."
+            return None, "Could not parse signal file (need >= 50 samples)."
 
-        # Normalize signal per lead
-        for lead in range(signal.shape[1]):
-            lead_data = signal[:, lead]
-            std = np.std(lead_data)
-            if std > 0.01:
-                signal[:, lead] = (lead_data - np.mean(lead_data)) / std
-            else:
-                signal[:, lead] = lead_data - np.mean(lead_data)
-
-        # Create ECG plot image
-        num_leads = min(signal.shape[1], 12)
-        fig, axes = plt.subplots(min(4, (num_leads + 2) // 3), 3,
-                                  figsize=(12, 8), dpi=80)
-        if not isinstance(axes, np.ndarray):
-            axes = np.array([[axes]])
-        axes = axes.flatten()
-
-        # Global y-limits for consistency
-        all_vals = signal[:, :num_leads].flatten()
-        g_min = np.percentile(all_vals, 1)
-        g_max = np.percentile(all_vals, 99)
-        y_range = max(g_max - g_min, 1.0)
-        y_margin = y_range * 0.15
-
-        for i in range(min(num_leads, len(axes))):
-            ax = axes[i]
-            ax.set_facecolor('#FAFAFA')
-            ax.grid(True, which='major', color='#DDDDDD', linewidth=0.8, alpha=0.8)
-            ax.minorticks_on()
-            ax.grid(True, which='minor', color='#EEEEEE', linewidth=0.4, alpha=0.5)
-
-            ax.plot(signal[:, i], 'k-', linewidth=1.0, antialiased=True)
-            ax.set_ylim(g_min - y_margin, g_max + y_margin)
-            ax.set_xlim(0, len(signal))
-
-            name = lead_names[i] if i < len(lead_names) else f'L{i+1}'
-            ax.text(0.02, 0.95, name, transform=ax.transAxes, fontsize=9,
-                    fontweight='bold', verticalalignment='top',
-                    bbox=dict(boxstyle='round,pad=0.3', facecolor='white',
-                              edgecolor='gray', alpha=0.8))
-            ax.set_xticks([])
-            ax.set_yticks([])
-            for spine in ax.spines.values():
-                spine.set_visible(False)
-
-        for i in range(num_leads, len(axes)):
-            axes[i].axis('off')
-
-        plt.tight_layout(pad=0.5)
-
-        buf = BytesIO()
-        plt.savefig(buf, format='png', bbox_inches='tight',
-                    facecolor='white', edgecolor='none', dpi=80)
-        plt.close(fig)
-        buf.seek(0)
-
-        # Convert to grayscale image matching model input
-        img = Image.open(buf)
-        img = img.resize(img_size, Image.LANCZOS)
-        img = img.convert('L')
-
-        img_array = np.array(img, dtype=np.float32) / 255.0
-
-        # Contrast enhancement
-        p5, p95 = np.percentile(img_array, (5, 95))
-        if p95 - p5 > 0.1:
-            img_array = np.clip((img_array - p5) / (p95 - p5), 0, 1)
-
-        img_array = np.expand_dims(img_array, axis=-1)  # (H, W, 1)
-        img_array = np.expand_dims(img_array, axis=0)   # (1, H, W, 1)
-
-        return img_array, None
+        img = MDI.signal_to_ecg_image(signal, img_size[0])   # (224, 224, 1)
+        arr = np.expand_dims(img.astype(np.float32), axis=0)  # (1, 224, 224, 1)
+        return arr, None
 
     except Exception as e:
         logger.error(f"Signal conversion error: {e}\n{traceback.format_exc()}")
@@ -2607,7 +2508,7 @@ def analyze_heart():
 
             # Convert signal to image
             processed_image, error_msg = signal_file_to_image(
-                temp_path, file_ext, img_size=(256, 256)
+                temp_path, file_ext, img_size=(224, 224)
             )
 
             # Cleanup temp files
@@ -2647,10 +2548,10 @@ def analyze_heart():
                 return jsonify({'success': False, 'error': 'Invalid file'}), 400
 
             image = Image.open(io.BytesIO(image_file.read()))
-            processed_image = preprocess_image_for_heart(image, target_size=(256, 256))
+            processed_image = preprocess_image_for_heart(image, target_size=(224, 224))
 
             # Validate image type
-            raw_for_validation = get_raw_array_for_validation(image, target_size=(256, 256), mode='L')
+            raw_for_validation = get_raw_array_for_validation(image, target_size=(224, 224), mode='L')
             validation = validate_image_type(raw_for_validation, 'heart')
             if not validation['is_valid']:
                 return jsonify({

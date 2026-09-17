@@ -1,71 +1,44 @@
 import React, { useEffect } from 'react';
-import { CheckCircle, AlertCircle, Info, X, AlertTriangle } from 'lucide-react';
+import { motion as Motion } from 'framer-motion';
+import { CheckCircle2, AlertCircle, Info, X, TriangleAlert } from 'lucide-react';
 
-function Notification({ message, type = 'info', onClose, duration = 4000 }) {
+const META = {
+  success: { icon: CheckCircle2, cls: 'text-low' },
+  error: { icon: AlertCircle, cls: 'text-critical' },
+  warning: { icon: TriangleAlert, cls: 'text-moderate' },
+  info: { icon: Info, cls: 'text-accent' },
+};
+
+export default function Notification({ message, type = 'info', onClose, duration = 4000 }) {
   useEffect(() => {
     if (duration > 0 && onClose) {
-      const timer = setTimeout(onClose, duration);
-      return () => clearTimeout(timer);
+      const t = setTimeout(onClose, duration);
+      return () => clearTimeout(t);
     }
-  }, [duration, onClose]);
+  }, [duration, onClose, message]);
 
-  const icons = {
-    success: CheckCircle,
-    error: AlertCircle,
-    warning: AlertTriangle,
-    info: Info,
-  };
-
-  const styles = {
-    success: 'bg-emerald-50 dark:bg-emerald-900/30 border-emerald-200 dark:border-emerald-700',
-    error: 'bg-red-50 dark:bg-red-900/30 border-red-200 dark:border-red-700',
-    warning: 'bg-amber-50 dark:bg-amber-900/30 border-amber-200 dark:border-amber-700',
-    info: 'bg-blue-50 dark:bg-blue-900/30 border-blue-200 dark:border-blue-700',
-  };
-
-  const iconStyles = {
-    success: 'text-emerald-600 dark:text-emerald-400',
-    error: 'text-red-600 dark:text-red-400',
-    warning: 'text-amber-600 dark:text-amber-400',
-    info: 'text-blue-600 dark:text-blue-400',
-  };
-
-  const textStyles = {
-    success: 'text-emerald-800 dark:text-emerald-200',
-    error: 'text-red-800 dark:text-red-200',
-    warning: 'text-amber-800 dark:text-amber-200',
-    info: 'text-blue-800 dark:text-blue-200',
-  };
-
-  const Icon = icons[type] || Info;
+  const { icon: Icon, cls } = META[type] || META.info;
 
   return (
-    <div 
-      className="fixed top-4 right-4 z-[100] max-w-md animate-fade-in"
+    <Motion.div
       role="alert"
       aria-live="polite"
+      layout
+      initial={{ opacity: 0, y: 16, scale: 0.97 }}
+      animate={{ opacity: 1, y: 0, scale: 1 }}
+      exit={{ opacity: 0, y: 8, scale: 0.98 }}
+      transition={{ type: 'spring', stiffness: 480, damping: 36 }}
+      className="panel pointer-events-auto flex w-[min(360px,calc(100vw-2rem))] items-start gap-3 !rounded-xl p-3.5 !shadow-lift"
     >
-      <div 
-        className={`flex items-start gap-3 px-4 py-3 rounded-xl border shadow-lg backdrop-blur-sm ${styles[type]}`}
+      <Icon size={18} className={`mt-px shrink-0 ${cls}`} strokeWidth={2} />
+      <p className="flex-1 text-[13px] font-medium leading-relaxed text-ink">{message}</p>
+      <button
+        onClick={onClose}
+        aria-label="Dismiss"
+        className="-mr-1 -mt-1 rounded-lg p-1.5 text-faint transition-colors hover:bg-raised hover:text-ink"
       >
-        <div className={`flex-shrink-0 mt-0.5 ${iconStyles[type]}`}>
-          <Icon size={20} />
-        </div>
-        
-        <p className={`flex-1 font-medium text-sm leading-relaxed ${textStyles[type]}`}>
-          {message}
-        </p>
-        
-        <button
-          onClick={onClose}
-          className={`flex-shrink-0 p-1 hover:bg-black/10 dark:hover:bg-white/10 rounded-lg transition-colors ${textStyles[type]}`}
-          aria-label="Close notification"
-        >
-          <X size={16} />
-        </button>
-      </div>
-    </div>
+        <X size={14} />
+      </button>
+    </Motion.div>
   );
 }
-
-export default Notification;
