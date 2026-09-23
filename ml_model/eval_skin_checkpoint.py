@@ -1,7 +1,3 @@
-"""One-shot: evaluate the skin v4 checkpoint (best val weights saved by
-ModelCheckpoint after the training process was interrupted) on the held-out
-test split and write skin_cancer_config.json."""
-
 import os
 import sys
 import numpy as np

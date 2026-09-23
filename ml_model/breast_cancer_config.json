@@ -7,104 +7,50 @@
   ],
   "preprocessing": "Grayscale + resize + normalize to [0,1] (no CLAHE/sharpen)",
   "use_grayscale": true,
-  "num_classes": 6,
+  "num_classes": 3,
   "classes": {
     "0": {
       "code": "normal",
       "name": "Normal",
-      "birads": "BI-RADS 1",
-      "severity": "healthy"
+      "severity": "healthy",
+      "description": "No abnormalities detected in breast tissue."
     },
     "1": {
       "code": "benign",
-      "name": "Benign Finding",
-      "birads": "BI-RADS 2",
-      "severity": "low"
+      "name": "Benign Tumor",
+      "severity": "low",
+      "description": "Non-cancerous growth detected."
     },
     "2": {
-      "code": "probably_benign",
-      "name": "Probably Benign",
-      "birads": "BI-RADS 3",
-      "severity": "low"
-    },
-    "3": {
-      "code": "suspicious",
-      "name": "Suspicious",
-      "birads": "BI-RADS 4",
-      "severity": "moderate"
-    },
-    "4": {
-      "code": "highly_suggestive",
-      "name": "Highly Suggestive",
-      "birads": "BI-RADS 5",
-      "severity": "high"
-    },
-    "5": {
       "code": "malignant",
-      "name": "Malignant",
-      "birads": "BI-RADS 6",
-      "severity": "critical"
+      "name": "Malignant Tumor",
+      "severity": "critical",
+      "description": "Cancerous growth detected. Immediate attention required."
     }
   },
   "class_names": [
     "normal",
     "benign",
-    "prob_benign",
-    "suspicious",
-    "high_susp",
     "malignant"
   ],
   "architecture": "transfer_mobilenetv2_v3",
   "training_notes": "Patient-level split, in-model augmentation, class_weight balanced, two-phase fine-tune (BN frozen)",
-  "accuracy": 0.8908045887947083,
+  "accuracy": 0.8563218116760254,
   "confusion_matrix": [
     [
-      61,
-      4,
-      0,
-      0,
-      0,
-      0
+      62,
+      1,
+      2
     ],
     [
-      11,
-      164,
-      0,
-      0,
-      0,
-      12
+      16,
+      152,
+      19
     ],
     [
-      0,
-      0,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      0,
-      0,
-      0,
-      0,
-      0,
-      0
-    ],
-    [
-      3,
-      8,
-      0,
-      0,
-      0,
-      85
+      2,
+      10,
+      84
     ]
   ]
 }

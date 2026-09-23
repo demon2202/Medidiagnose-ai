@@ -58,3 +58,27 @@ build/
 .idea/
 .DS_Store
 Thumbs.db
+
+# ===============================
+# SCRATCH / TEMP / GENERATED
+# ===============================
+# temp render caches
+ml_model/_ecgtmp/
+ml_model/_graytmp/
+*.npz
+
+# scratch / one-off scripts + probes (underscore-prefixed)
+ml_model/_probe*.py
+ml_model/_calibrate*.py
+ml_model/_featstats.json
+
+# dataset move manifest (large, regenerable)
+ml_model/dataset_reorganize_manifest.json
+
+# runtime uploads
+backend/uploads/
+uploads/
+
+# model backups (keep only the live model)
+ml_model/*_backup.h5
+ml_model/*_backup.joblib

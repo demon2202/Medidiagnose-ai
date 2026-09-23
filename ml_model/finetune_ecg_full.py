@@ -1,6 +1,3 @@
-"""One-shot: continue ECG training from the v1 checkpoint with the ENTIRE
-backbone unfrozen (BN frozen) and a cosine LR schedule — the strongest
-fine-tuning recipe without re-running phase 1 from scratch."""
 
 import os
 import sys

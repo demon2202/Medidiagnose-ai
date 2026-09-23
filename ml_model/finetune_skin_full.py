@@ -1,5 +1,3 @@
-"""One-shot: continue skin-cancer training from the v1 checkpoint with the
-ENTIRE backbone unfrozen (BN frozen) and a cosine LR schedule."""
 
 import os
 import sys

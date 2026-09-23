@@ -3,9 +3,9 @@ DISEASE PREDICTION MODEL — TRAINING REPORT
 Compatible with: server.py v4.1 /predict-disease
 ======================================================================
 
-Accuracy:              0.8256  (82.56%)
-F1 Score (weighted):   0.8293
-Cross-Val Accuracy:    0.9199 (±0.0044)
+Accuracy:              0.8132  (81.32%)
+F1 Score (weighted):   0.8163
+Cross-Val Accuracy:    0.9176 (±0.0025)
 Training samples:      3874
 Test samples:          969
 Number of symptoms:    133
@@ -65,48 +65,48 @@ CLASSIFICATION REPORT
                          Acne       1.00      0.67      0.80         3
           Alcoholic hepatitis       1.00      0.87      0.93        30
                       Allergy       0.50      0.67      0.57         3
-                    Arthritis       0.89      0.67      0.76        12
+                    Arthritis       0.90      0.75      0.82        12
              Bronchial Asthma       0.77      0.71      0.74        28
          Cervical spondylosis       0.83      0.83      0.83         6
                   Chicken pox       0.79      0.89      0.84        35
-          Chronic cholestasis       0.38      0.48      0.43        21
-                  Common Cold       0.91      0.79      0.85        38
-                       Dengue       0.97      0.82      0.89        44
-                     Diabetes       0.97      0.92      0.94        37
- Dimorphic hemmorhoids(piles)       0.86      1.00      0.92         6
-                Drug Reaction       0.62      0.83      0.71         6
-             Fungal infection       0.75      1.00      0.86         3
-                         GERD       0.95      0.90      0.92        20
-              Gastroenteritis       0.73      0.79      0.76        28
-                 Heart attack       0.73      0.92      0.81        12
-                  Hepatitis A       0.77      0.73      0.75        41
-                  Hepatitis B       0.78      0.80      0.79        40
+          Chronic cholestasis       0.50      0.43      0.46        21
+                  Common Cold       0.88      0.76      0.82        38
+                       Dengue       0.92      0.82      0.87        44
+                     Diabetes       0.97      0.89      0.93        37
+ Dimorphic hemmorhoids(piles)       1.00      1.00      1.00         6
+                Drug Reaction       0.75      1.00      0.86         6
+             Fungal infection       0.67      0.67      0.67         3
+                         GERD       1.00      0.85      0.92        20
+              Gastroenteritis       0.69      0.79      0.73        28
+                 Heart attack       0.62      0.83      0.71        12
+                  Hepatitis A       0.64      0.78      0.70        41
+                  Hepatitis B       0.82      0.78      0.79        40
                   Hepatitis C       0.56      0.70      0.62        20
-                  Hepatitis D       0.68      0.77      0.72        39
-                  Hepatitis E       1.00      0.72      0.84        47
-                 Hypertension       0.78      1.00      0.88         7
-              Hyperthyroidism       0.80      0.94      0.87        35
+                  Hepatitis D       0.69      0.64      0.67        39
+                  Hepatitis E       0.95      0.74      0.83        47
+                 Hypertension       0.75      0.86      0.80         7
+              Hyperthyroidism       0.85      0.94      0.89        35
                  Hypoglycemia       1.00      0.85      0.92        27
-               Hypothyroidism       1.00      0.95      0.97        39
-                     Impetigo       0.86      1.00      0.92         6
-                    Influenza       0.81      0.91      0.86        43
+               Hypothyroidism       0.97      0.92      0.95        39
+                     Impetigo       0.75      1.00      0.86         6
+                    Influenza       0.80      0.86      0.83        43
                      Jaundice       0.67      0.65      0.66        34
-                      Malaria       0.77      0.82      0.79        28
-                     Migraine       0.90      0.93      0.91        28
+                      Malaria       0.81      0.79      0.80        28
+                     Migraine       0.96      0.93      0.95        28
                Osteoarthritis       0.79      0.92      0.85        12
  Paralysis (brain hemorrhage)       0.29      0.67      0.40         3
 Paroxysmal Positional Vertigo       1.00      0.75      0.86         4
-         Peptic ulcer disease       0.68      0.89      0.77        19
-                    Pneumonia       0.94      0.78      0.85        40
-                    Psoriasis       1.00      1.00      1.00        12
-                 Tuberculosis       0.84      0.89      0.86        46
-                      Typhoid       0.94      0.80      0.87        41
+         Peptic ulcer disease       0.58      0.95      0.72        19
+                    Pneumonia       0.77      0.75      0.76        40
+                    Psoriasis       0.92      1.00      0.96        12
+                 Tuberculosis       0.80      0.89      0.85        46
+                      Typhoid       1.00      0.83      0.91        41
       Urinary tract infection       1.00      0.67      0.80         3
-               Varicose veins       1.00      1.00      1.00        20
+               Varicose veins       1.00      0.95      0.97        20
 
-                     accuracy                           0.83       969
-                    macro avg       0.82      0.83      0.82       969
-                 weighted avg       0.84      0.83      0.83       969
+                     accuracy                           0.81       969
+                    macro avg       0.81      0.81      0.81       969
+                 weighted avg       0.83      0.81      0.82       969
 
 
 ----------------------------------------------------------------------

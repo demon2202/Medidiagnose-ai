@@ -58,6 +58,10 @@ export default function SymptomDiagnosis() {
   const [result, setResult] = useState(null);
   const [error, setError] = useState(null);
 
+  const [freeText, setFreeText] = useState('');
+  const [matching, setMatching] = useState(false);
+  const [matchNote, setMatchNote] = useState(null);
+
   const filtered = symptoms.filter((s) => {
     const q = s.label.toLowerCase().includes(query.toLowerCase());
     const c = category === 'All' || s.category === category;
@@ -67,6 +71,38 @@ export default function SymptomDiagnosis() {
   const toggle = (id) => {
     setSelected((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
     setError(null);
+  };
+
+  /* Free-text symptom entry: matches typed symptoms to canonical ones via the
+     backend /symptoms/match endpoint, then adds them to the selection. */
+  const handleFreeText = async () => {
+    const txt = freeText.trim();
+    if (!txt) return;
+    setMatching(true);
+    setMatchNote(null);
+    setError(null);
+    try {
+      const res = await axios.post(`${config.api.baseURL}/symptoms/match`, { query: txt });
+      if (res.data && res.data.success) {
+        const canon = (res.data.matches || []).map((m) => m.canonical);
+        setSelected((prev) => [...new Set([...prev, ...canon])]);
+        const unmatched = res.data.unmatched || [];
+        if (canon.length === 0) {
+          setMatchNote("No matching symptoms found \u2014 try different wording.");
+        } else if (unmatched.length) {
+          setMatchNote(`Added ${canon.length}. Couldn't match: ${unmatched.join(', ')}`);
+        } else {
+          setMatchNote(`Added ${canon.length} symptom${canon.length > 1 ? 's' : ''}.`);
+        }
+        setFreeText('');
+      } else {
+        setError((res.data && res.data.error) || 'Could not match symptoms');
+      }
+    } catch (err) {
+      setError(err.response?.data?.error || 'Server error while matching symptoms');
+    } finally {
+      setMatching(false);
+    }
   };
 
   const handleDiagnose = async () => {
@@ -141,6 +177,30 @@ export default function SymptomDiagnosis() {
         {/* picker */}
         <Reveal delay={0.05} className="lg:col-span-7">
           <div className="panel p-5">
+            <div className="mb-4 rounded-xl border border-line bg-paper/60 p-3">
+              <p className="mb-2 text-[13px] font-medium text-muted">
+                Or type your symptoms \u2014 we'll match them for you
+              </p>
+              <div className="flex gap-2">
+                <input
+                  value={freeText}
+                  onChange={(e) => setFreeText(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === 'Enter') handleFreeText(); }}
+                  placeholder="e.g. fever, bad cough, feeling dizzy"
+                  className="field flex-1"
+                />
+                <button
+                  onClick={handleFreeText}
+                  disabled={matching || !freeText.trim()}
+                  className="btn-accent shrink-0 px-4"
+                >
+                  {matching ? <Loader2 size={16} className="animate-spin" /> : 'Add'}
+                </button>
+              </div>
+              {matchNote && (
+                <p className="mt-2 text-[13px] text-muted">{matchNote}</p>
+              )}
+            </div>
             <div className="relative">
               <Search size={16} className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-faint" />
               <input

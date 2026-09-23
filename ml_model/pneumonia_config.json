@@ -15,11 +15,12 @@
   "output_type": "softmax_2class",
   "architecture": "MobileNetV2_transfer_learning_v3",
   "optimal_threshold": 0.5,
-  "accuracy": 0.859375,
+  "accuracy": 0.8821022510528564,
   "confusion_matrix": {
-    "TN": 178,
-    "FP": 96,
+    "TN": 194,
+    "FP": 80,
     "FN": 3,
     "TP": 427
-  }
+  },
+  "optimal_temperature": 2.5
 }

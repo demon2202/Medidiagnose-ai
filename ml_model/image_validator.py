@@ -1,822 +1,285 @@
 import os
 import numpy as np
-import warnings
-warnings.filterwarnings('ignore')
 
-# TensorFlow imports
-TF_AVAILABLE = False
-try:
-    os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
-    import tensorflow as tf
-    from tensorflow import keras
-    from tensorflow.keras import layers, models, regularizers
-    from tensorflow.keras.callbacks import EarlyStopping, ModelCheckpoint
-    from tensorflow.keras.optimizers import Adam
-    from tensorflow.keras.utils import to_categorical
-    from tensorflow.keras.preprocessing.image import ImageDataGenerator
+# TensorFlow is NOT required for validation. Kept optional so importing this
+# module can never break the server when TF is missing/mismatched.
+try:  # pragma: no cover
+    import tensorflow as _tf  # noqa: F401
     TF_AVAILABLE = True
-    print(f"✓ TensorFlow {tf.__version__} available")
-except ImportError:
-    print("✗ TensorFlow not available")
+except Exception:  # pragma: no cover
+    TF_AVAILABLE = False
 
-from PIL import Image
-import json
-from collections import Counter
-
-# Paths
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
-VALIDATOR_MODEL_PATH = os.path.join(SCRIPT_DIR, 'image_validator_model.h5')
-VALIDATOR_CONFIG_PATH = os.path.join(SCRIPT_DIR, 'image_validator_config.json')
+VALIDATOR_MODEL_PATH = os.path.join(SCRIPT_DIR, "image_validator_model.h5")
+VALIDATOR_CONFIG_PATH = os.path.join(SCRIPT_DIR, "image_validator_config.json")
 
-# Image size
 IMG_SIZE = 224
 
-# Image type classes
+# Canonical image-type catalogue (kept for backwards compatibility / configs).
 IMAGE_TYPES = {
-    0: {'code': 'skin_lesion', 'name': 'Skin Lesion/Dermoscopy', 'valid_for': ['skin']},
-    1: {'code': 'xray_chest', 'name': 'Chest X-Ray', 'valid_for': ['xray', 'pneumonia']},
-    2: {'code': 'mammogram', 'name': 'Mammogram/Breast Ultrasound', 'valid_for': ['breast']},
-    3: {'code': 'ecg', 'name': 'ECG/Heart Scan', 'valid_for': ['heart']},
-    4: {'code': 'other', 'name': 'Non-Medical/Unrecognized', 'valid_for': []}
+    0: {"code": "skin_lesion", "name": "Skin Lesion/Dermoscopy", "valid_for": ["skin"]},
+    1: {"code": "xray_chest", "name": "Chest X-Ray", "valid_for": ["xray", "pneumonia"]},
+    2: {"code": "mammogram", "name": "Breast Ultrasound", "valid_for": ["breast"]},
+    3: {"code": "ecg", "name": "ECG/Heart Scan", "valid_for": ["heart"]},
+    4: {"code": "other", "name": "Non-Medical/Unrecognized", "valid_for": []},
 }
 
-# Characteristics for rule-based detection
-IMAGE_CHARACTERISTICS = {
-    'skin_lesion': {
-        'color_range': 'high',  # Colorful (brown, black, pink, red)
-        'typical_aspect': 'square-ish',
-        'texture': 'varied',
-        'background': 'skin-toned'
-    },
-    'xray_chest': {
-        'color_range': 'grayscale',
-        'typical_aspect': 'portrait',
-        'texture': 'smooth gradients',
-        'features': 'ribs, lungs, heart silhouette'
-    },
-    'mammogram': {
-        'color_range': 'grayscale',
-        'typical_aspect': 'varies',
-        'texture': 'dense tissue patterns',
-        'background': 'black'
-    },
-    'ecg': {
-        'color_range': 'low',  # Usually white/light with dark lines
-        'typical_aspect': 'landscape',
-        'texture': 'grid with wave patterns',
-        'features': 'regular peaks, grid lines'
+# ---------------------------------------------------------------------------
+# Thresholds - every number below is justified by _featstats.json
+# ---------------------------------------------------------------------------
+COLOUR_RGB_DIFF = 0.05   # skin p5 = 0.142 ; gray = 0.0
+COLOUR_SAT      = 0.05   # skin p5 = 0.115 ; gray = 0.0
+
+SKIN_GRAY_RGB   = 0.04   # reject if rgb_diff < this AND sat < SKIN_GRAY_SAT
+SKIN_GRAY_SAT   = 0.05
+SKIN_DOC_BRIGHT = 0.88   # skin p95 brightness = 0.751
+SKIN_DOC_BRIGHTR= 0.60   # skin p95 bright_ratio = 0.702 (kept lenient)
+SKIN_DOC_EDGE   = 0.010  # HAM p50 edge_density = 0.0015
+
+XRAY_DARK_MIN   = 0.08   # chest p5 brightness = 0.374 ; mammo/black frames lower
+ECG_HISTPEAK    = 0.70   # rendered ECG peak ~0.93 ; xray peak p95 = 0.153
+ECG_ENTROPY     = 1.00   # rendered ECG entropy ~0.34
+
+BREAST_DOC_BRIGHT = 0.92
+BREAST_DOC_EDGE   = 0.006
+
+HEART_ECG_BRIGHT  = 0.80
+HEART_DARK_BRIGHT = 0.05
+HEART_DARK_RATIO  = 0.90
+
+
+def _to_single(img_array):
+    """Accept (H,W,C), (1,H,W,C), (H,W) and return a single 2-D or 3-D image."""
+    arr = np.asarray(img_array, dtype=np.float32)
+    if arr.ndim == 4:
+        arr = arr[0]
+    return arr
+
+
+def analyze_image_statistics(img_array):
+    """Return the full metric dict used by the gate (and by the debug page)."""
+    arr = _to_single(img_array)
+    stats = {}
+
+    if arr.ndim == 3 and arr.shape[2] >= 3:
+        # Some callers pass non-normalised 0..255 arrays - normalise defensively.
+        scale = 255.0 if float(np.max(arr)) > 1.5 else 1.0
+        a = arr[:, :, :3] / scale
+        r, g, b = a[:, :, 0], a[:, :, 1], a[:, :, 2]
+        rgb_diff = float(np.mean(np.abs(r - g) + np.abs(g - b) + np.abs(r - b)))
+        mx = np.maximum(np.maximum(r, g), b)
+        mn = np.minimum(np.minimum(r, g), b)
+        sat = np.where(mx > 0, (mx - mn) / (mx + 1e-7), 0.0)
+        gray = a.mean(axis=2)
+        stats["rgb_diff"] = rgb_diff
+        stats["mean_saturation"] = float(np.mean(sat))
+        stats["skin_tone_ratio"] = float(np.mean(
+            (r > 0.3) & (r < 0.9) & (g > 0.2) & (g < 0.8) & (b > 0.1) & (b < 0.7) & (r > g) & (g > b)
+        ))
+    else:
+        gray = arr[:, :, 0] if arr.ndim == 3 else arr
+        if float(np.max(gray)) > 1.5:
+            gray = gray / 255.0
+        stats["rgb_diff"] = 0.0
+        stats["mean_saturation"] = 0.0
+        stats["skin_tone_ratio"] = 0.0
+
+    stats["overall_brightness"] = float(np.mean(gray))
+    stats["dark_region_ratio"] = float(np.mean(gray < 0.15))
+    stats["bright_region_ratio"] = float(np.mean(gray > 0.75))
+
+    gx = np.abs(gray[1:, :] - gray[:-1, :])
+    gy = np.abs(gray[:, 1:] - gray[:, :-1])
+    stats["edge_intensity"] = float(np.mean(gx) + np.mean(gy))
+    gxf = np.zeros_like(gray); gyf = np.zeros_like(gray)
+    gxf[1:, :] = gx; gyf[:, 1:] = gy
+    stats["edge_density"] = float(np.mean(np.maximum(gxf, gyf) > 0.1))
+
+    hist, _ = np.histogram(gray.flatten(), bins=50, range=(0, 1))
+    hn = hist / (hist.sum() + 1e-7)
+    stats["histogram_entropy"] = float(-np.sum(hn * np.log(hn + 1e-7)))
+    stats["histogram_peak"] = float(hn.max())
+    stats["has_grid_pattern"] = float(
+        np.var(np.mean(gray, axis=0)) + np.var(np.mean(gray, axis=1))
+    )
+    stats["is_grayscale"] = bool(
+        stats["rgb_diff"] < 0.045 and stats["mean_saturation"] < 0.045
+    )
+    return stats
+
+
+def _result(is_valid, expected_type, stats, detected, message, suggestion=None,
+            confidence=0.8, reasons=None):
+    return {
+        "is_valid": bool(is_valid),
+        "predicted_type": detected,
+        "predicted_code": detected.lower().replace(" ", "_").replace("/", "_"),
+        "expected_type": expected_type,
+        "confidence": float(confidence),
+        "message": message,
+        "suggestion": suggestion or "",
+        "reasons": reasons or [],
+        "image_stats": stats,
     }
-}
 
 
+def validate_image_type(img_array, expected_type):
+    """Decide whether ``img_array`` matches ``expected_type``.
+
+    expected_type: one of 'skin', 'xray'/'pneumonia', 'breast', 'heart'/'ecg'.
+    Returns a dict with ``is_valid`` plus a human-readable ``message`` and
+    ``suggestion`` and the raw ``image_stats``.
+    """
+    st = analyze_image_statistics(img_array)
+    et = str(expected_type or "").lower().strip()
+
+    rgb = st["rgb_diff"]; sat = st["mean_saturation"]; b = st["overall_brightness"]
+    dark = st["dark_region_ratio"]; brightr = st["bright_region_ratio"]
+    edens = st["edge_density"]; ent = st["histogram_entropy"]; peak = st["histogram_peak"]
+
+    # ---------------------------------------------------------------- SKIN
+    if et == "skin":
+        reasons = []
+        if rgb < SKIN_GRAY_RGB and sat < SKIN_GRAY_SAT:
+            reasons.append(
+                "rgb_diff=%.3f and saturation=%.3f are both near zero (a colour photo "
+                "must have rgb_diff>=%.2f or saturation>=%.2f)" % (rgb, sat, SKIN_GRAY_RGB, SKIN_GRAY_SAT)
+            )
+            return _result(False, et, st, "Grayscale",
+                           "This looks like a grayscale image, but skin lesion photos must be in colour.",
+                           "Please upload a colour (RGB/JPEG/PNG) close-up photo of the lesion or mole.",
+                           0.95, reasons)
+        if b > SKIN_DOC_BRIGHT and brightr > SKIN_DOC_BRIGHTR and edens < SKIN_DOC_EDGE and sat < COLOUR_SAT:
+            reasons.append(
+                "brightness=%.2f, bright_ratio=%.2f, edge_density=%.3f - a flat, near-white page"
+                % (b, brightr, edens)
+            )
+            return _result(False, et, st, "Document/ECG",
+                           "This looks like a document, screenshot or ECG printout rather than a skin photo.",
+                           "Please upload a close-up colour photo of the skin lesion or mole.",
+                           0.85, reasons)
+        return _result(True, et, st, "Skin Lesion",
+                       "Valid colour skin photo (rgb_diff=%.3f, saturation=%.3f)." % (rgb, sat),
+                       confidence=0.85)
+
+    # --------------------------------------------------------- XRAY / PNEUMONIA
+    if et in ("xray", "pneumonia"):
+        reasons = []
+        if rgb > COLOUR_RGB_DIFF or sat > COLOUR_SAT:
+            reasons.append(
+                "rgb_diff=%.3f, saturation=%.3f -> the image carries colour (grayscale scans have both ~0)"
+                % (rgb, sat)
+            )
+            return _result(False, et, st, "Colour photo",
+                           "This is a colour image, but a chest X-ray must be a grayscale scan.",
+                           "Colour skin photos belong on the Skin tool. Please upload a grayscale chest X-ray.",
+                           0.95, reasons)
+        if peak > ECG_HISTPEAK or ent < ECG_ENTROPY:
+            reasons.append("histogram_peak=%.2f, entropy=%.2f - flat line-art, not a radiograph"
+                           % (peak, ent))
+            return _result(False, et, st, "ECG/Line-art",
+                           "This looks like an ECG printout or line-art, not a chest X-ray.",
+                           "Please upload a grayscale chest X-ray image.",
+                           0.85, reasons)
+        if b < XRAY_DARK_MIN:
+            reasons.append("brightness=%.3f is below the %.2f floor (chest X-rays are %.2f-%.2f)"
+                           % (b, XRAY_DARK_MIN, 0.37, 0.59))
+            return _result(False, et, st, "Too dark",
+                           "This image is far too dark to be a chest X-ray (it may be a mammogram).",
+                           "Please upload a properly exposed chest X-ray. Use the Breast tool for mammograms.",
+                           0.80, reasons)
+        return _result(True, et, st, "Chest X-Ray",
+                       "Valid chest X-ray (brightness=%.2f, contrast ok)." % b,
+                       confidence=0.82)
+
+    # ------------------------------------------------------------- BREAST
+    if et == "breast":
+        reasons = []
+        if rgb > COLOUR_RGB_DIFF or sat > COLOUR_SAT:
+            reasons.append("rgb_diff=%.3f, saturation=%.3f -> colour image" % (rgb, sat))
+            return _result(False, et, st, "Colour photo",
+                           "This is a colour image, but a breast ultrasound/mammogram must be grayscale.",
+                           "Please upload a grayscale breast ultrasound or mammogram.",
+                           0.95, reasons)
+        if b > BREAST_DOC_BRIGHT and edens < BREAST_DOC_EDGE and peak > 0.30:
+            reasons.append("brightness=%.2f, edge_density=%.3f, hist_peak=%.2f - smooth white page"
+                           % (b, edens, peak))
+            return _result(False, et, st, "Document/ECG",
+                           "This looks like a document or ECG printout, not a breast scan.",
+                           "Please upload a grayscale breast ultrasound or mammogram.",
+                           0.85, reasons)
+        return _result(True, et, st, "Mammogram/Breast Ultrasound",
+                       "Valid grayscale breast scan.", confidence=0.82)
+
+    # --------------------------------------------------------- HEART / ECG
+    if et in ("heart", "ecg"):
+        reasons = []
+        if rgb > COLOUR_RGB_DIFF and st["skin_tone_ratio"] > 0.30 and sat > 0.30:
+            reasons.append("skin_tone_ratio=%.2f, saturation=%.2f -> looks like a skin photo"
+                           % (st["skin_tone_ratio"], sat))
+            return _result(False, et, st, "Skin photo",
+                           "This looks like a colour skin photo, not an ECG or heart scan.",
+                           "Please upload an ECG printout or echocardiogram image.",
+                           0.85, reasons)
+        is_ecg_paper = b > HEART_ECG_BRIGHT and ent < 1.5
+        is_dark_trace = edens > 0.05 and (b < 0.20 or dark > HEART_DARK_RATIO)
+        if not (is_ecg_paper or is_dark_trace) and b < 0.15 and dark > 0.80 and ent < 1.0:
+            reasons.append("brightness=%.2f, dark_ratio=%.2f, entropy=%.2f - blank/near-black frame"
+                           % (b, dark, ent))
+            return _result(False, et, st, "Blank/Dark",
+                           "This image is too dark and featureless to be an ECG or heart scan.",
+                           "Please upload an ECG printout (bright paper) or an echocardiogram.",
+                           0.80, reasons)
+        return _result(True, et, st, "ECG/Heart Scan",
+                       "Accepted as an ECG/heart scan.", confidence=0.78)
+
+    # Unknown requested modality -> pass through (server validates elsewhere).
+    return _result(True, et, st, "Unknown", "Image validation passed.", confidence=0.5)
+
+
+# ---------------------------------------------------------------------------
+# Backwards-compatible entry points
+# ---------------------------------------------------------------------------
 class ImageValidator:
-    """
-    Validates if an uploaded image matches the expected medical image type.
-    Uses both rule-based heuristics and optional ML model.
-    """
-    
-    def __init__(self, model_path=None):
+    """Thin wrapper kept so older imports keep working."""
+
+    def __init__(self, model_path=None):  # noqa: D401
         self.model = None
         self.use_ml = False
-        
-        # Try to load ML model
-        if model_path and os.path.exists(model_path):
-            try:
-                self.model = keras.models.load_model(model_path)
-                self.use_ml = True
-                print("✓ Image validator ML model loaded")
-            except Exception as e:
-                print(f"⚠ Could not load validator model: {e}")
-        
-        if not self.use_ml:
-            print("ℹ Using rule-based image validation")
-    
+
     def analyze_image_statistics(self, img_array):
-        """
-        Analyze image statistics to help determine image type.
+        return analyze_image_statistics(img_array)
 
-        POLISHED: added aspect_ratio preservation, edge_density (fraction of
-        high-gradient pixels), and column_variance_spikes (for ECG grid
-        detection via column-wise brightness variance).
-
-        Args:
-            img_array: numpy array of image (H, W, C) normalized to [0, 1]
-
-        Returns:
-            dict with image statistics
-        """
-        stats = {}
-
-        # Color analysis
-        if len(img_array.shape) == 3 and img_array.shape[2] == 3:
-            # RGB image
-            r, g, b = img_array[:,:,0], img_array[:,:,1], img_array[:,:,2]
-
-            # Check if grayscale (R≈G≈B)
-            rgb_diff = np.mean(np.abs(r - g) + np.abs(g - b) + np.abs(r - b))
-            stats['is_grayscale'] = rgb_diff < 0.05
-            stats['rgb_variance'] = float(rgb_diff)
-
-            # Color statistics
-            stats['mean_r'] = float(np.mean(r))
-            stats['mean_g'] = float(np.mean(g))
-            stats['mean_b'] = float(np.mean(b))
-            stats['overall_brightness'] = float(np.mean(img_array))
-
-            # Saturation (color intensity)
-            max_rgb = np.maximum(np.maximum(r, g), b)
-            min_rgb = np.minimum(np.minimum(r, g), b)
-            saturation = np.where(max_rgb > 0, (max_rgb - min_rgb) / (max_rgb + 1e-7), 0)
-            stats['mean_saturation'] = float(np.mean(saturation))
-
-        else:
-            stats['is_grayscale'] = True
-            stats['overall_brightness'] = float(np.mean(img_array))
-            stats['mean_saturation'] = 0.0
-
-        # Edge detection (simple gradient)
-        if len(img_array.shape) == 3:
-            gray = np.mean(img_array, axis=2)
-        else:
-            gray = img_array
-
-        # Sobel-like edge detection
-        gx = np.abs(gray[1:, :] - gray[:-1, :])    # shape (H-1, W)
-        gy = np.abs(gray[:, 1:] - gray[:, :-1])    # shape (H, W-1)
-        edge_intensity = float(np.mean(gx) + np.mean(gy))
-        stats['edge_intensity'] = edge_intensity
-
-        # POLISHED: edge_density = fraction of pixels with high gradient
-        # (real medical images have specific density patterns: skin lesion
-        # has high edge density from hair/skin texture, ECG has medium-high
-        # edge density from waveform lines, ultrasound has medium density
-        # from speckle texture, mammogram has low density)
-        # Pad gx and gy to same shape (H, W) before combining.
-        gx_full = np.zeros_like(gray)
-        gy_full = np.zeros_like(gray)
-        gx_full[1:, :] = gx           # gradient is at row i, comparing row i-1 to row i
-        gy_full[:, 1:] = gy
-        edge_combined = np.maximum(gx_full, gy_full)
-        stats['edge_density'] = float(np.mean(edge_combined > 0.1))
-
-        # Histogram analysis
-        hist, _ = np.histogram(gray.flatten(), bins=50, range=(0, 1))
-        hist = hist / (hist.sum() + 1e-7)
-        stats['histogram_entropy'] = float(-np.sum(hist * np.log(hist + 1e-7)))
-
-        # POLISHED: histogram concentration (peakiness — ECG has a tall peak
-        # at high brightness, mammogram has tall peak at low brightness)
-        stats['histogram_peak'] = float(hist.max())
-
-        # Check for grid patterns (ECG characteristic)
-        # Look for regular vertical lines
-        col_variance = np.var(np.mean(gray, axis=0))
-        row_variance = np.var(np.mean(gray, axis=1))
-        stats['has_grid_pattern'] = float(col_variance + row_variance)
-
-        # POLISHED: column variance spikes — ECG paper has regular vertical
-        # grid lines that produce periodic peaks in column-wise variance.
-        # We measure the variance-of-variance to detect this periodicity.
-        col_vars = np.var(gray, axis=0)
-        stats['col_var_std'] = float(np.std(col_vars))
-        stats['col_var_mean'] = float(np.mean(col_vars))
-
-        # Check for large dark regions (X-ray/mammogram characteristic)
-        dark_pixels = np.mean(gray < 0.2)
-        stats['dark_region_ratio'] = float(dark_pixels)
-
-        # POLISHED: bright region ratio for skin tone detection
-        # Real dermoscopy images have moderate bright regions (skin tone)
-        # but never extreme brightness like ECG paper backgrounds.
-        stats['bright_region_ratio'] = float(np.mean(gray > 0.75))
-
-        # Check for skin tones (skin lesion characteristic)
-        if not stats['is_grayscale']:
-            # Skin tone detection (simplified)
-            skin_mask = (
-                (r > 0.3) & (r < 0.9) &
-                (g > 0.2) & (g < 0.8) &
-                (b > 0.1) & (b < 0.7) &
-                (r > g) & (g > b)
-            )
-            stats['skin_tone_ratio'] = float(np.mean(skin_mask))
-        else:
-            stats['skin_tone_ratio'] = 0.0
-
-        return stats
-    
-    def predict_image_type_rules(self, img_array):
-        """
-        Rule-based image type prediction.
-        
-        Args:
-            img_array: numpy array (H, W, C) normalized to [0, 1]
-        
-        Returns:
-            tuple: (predicted_type_idx, confidence, all_scores)
-        """
-        stats = self.analyze_image_statistics(img_array)
-        
-        scores = {
-            'skin_lesion': 0.0,
-            'xray_chest': 0.0,
-            'mammogram': 0.0,
-            'ecg': 0.0,
-            'other': 0.2  # Base score for "other"
-        }
-        
-        # === SKIN LESION DETECTION ===
-        if not stats['is_grayscale']:
-            scores['skin_lesion'] += 0.3
-        if stats['mean_saturation'] > 0.1:
-            scores['skin_lesion'] += 0.2
-        if stats['skin_tone_ratio'] > 0.3:
-            scores['skin_lesion'] += 0.3
-        if 0.3 < stats['overall_brightness'] < 0.7:
-            scores['skin_lesion'] += 0.1
-        if stats['rgb_variance'] > 0.02:
-            scores['skin_lesion'] += 0.1
-        
-        # === X-RAY DETECTION ===
-        if stats['is_grayscale'] or stats['rgb_variance'] < 0.02:
-            scores['xray_chest'] += 0.25
-        if stats['dark_region_ratio'] > 0.2 and stats['dark_region_ratio'] < 0.6:
-            scores['xray_chest'] += 0.25
-        if 0.3 < stats['overall_brightness'] < 0.6:
-            scores['xray_chest'] += 0.2
-        if stats['histogram_entropy'] > 2.5:
-            scores['xray_chest'] += 0.15
-        if stats['edge_intensity'] > 0.05 and stats['edge_intensity'] < 0.15:
-            scores['xray_chest'] += 0.15
-        
-        # === MAMMOGRAM DETECTION ===
-        if stats['is_grayscale'] or stats['rgb_variance'] < 0.02:
-            scores['mammogram'] += 0.2
-        if stats['dark_region_ratio'] > 0.4:
-            scores['mammogram'] += 0.3
-        if stats['overall_brightness'] < 0.4:
-            scores['mammogram'] += 0.2
-        if stats['histogram_entropy'] < 3.0:
-            scores['mammogram'] += 0.15
-        if stats['edge_intensity'] < 0.1:
-            scores['mammogram'] += 0.15
-        
-        # === ECG DETECTION ===
-        if stats['is_grayscale'] or stats['mean_saturation'] < 0.1:
-            scores['ecg'] += 0.15
-        if stats['overall_brightness'] > 0.6:
-            scores['ecg'] += 0.2  # ECGs usually have white/light background
-        if stats['has_grid_pattern'] > 0.01:
-            scores['ecg'] += 0.3
-        if stats['edge_intensity'] > 0.08:
-            scores['ecg'] += 0.2
-        if stats['dark_region_ratio'] < 0.2:
-            scores['ecg'] += 0.15
-        
-        # Normalize scores
-        total = sum(scores.values())
-        if total > 0:
-            scores = {k: v/total for k, v in scores.items()}
-        
-        # Get prediction
-        type_mapping = {
-            'skin_lesion': 0,
-            'xray_chest': 1,
-            'mammogram': 2,
-            'ecg': 3,
-            'other': 4
-        }
-        
-        best_type = max(scores, key=scores.get)
-        confidence = scores[best_type]
-        
-        # If confidence is too low, mark as "other"
-        if confidence < 0.35:
-            best_type = 'other'
-            confidence = scores['other']
-        
-        return type_mapping[best_type], confidence, scores, stats
-    
-    def predict_image_type_ml(self, img_array):
-        """
-        ML-based image type prediction.
-        
-        Args:
-            img_array: numpy array (H, W, C) normalized to [0, 1]
-        
-        Returns:
-            tuple: (predicted_type_idx, confidence, all_probabilities)
-        """
-        if self.model is None:
-            return self.predict_image_type_rules(img_array)
-        
-        # Prepare input
-        img_batch = np.expand_dims(img_array, axis=0)
-        
-        # Predict
-        predictions = self.model.predict(img_batch, verbose=0)[0]
-        predicted_idx = int(np.argmax(predictions))
-        confidence = float(predictions[predicted_idx])
-        
-        return predicted_idx, confidence, predictions
-    
     def validate_image(self, img_array, expected_type):
-        """
-        Validate if image matches expected type using rule-based statistics.
-
-        POLISHED VERSION — improved discrimination rules:
-
-          SKIN:  color + (skin_tone_ratio>0.05 OR rgb_variance>0.06)
-                 AND moderate brightness (0.15 < b < 0.85)
-                 AND edge_density > 0.05 (texture expected)
-                 Rejects: grayscale images, ECG paper, X-rays
-          XRAY:  grayscale + 0.18 < brightness < 0.75
-                 AND 0.10 < dark_ratio < 0.70 (lungs visible)
-                 AND NOT skin tone + NOT bright ECG background
-                 Rejects: color photos, mammograms (too dark), ECGs
-          BREAST: grayscale + brightness > 0.15 (any)
-                 AND edge_intensity < 0.25 (not noisy)
-                 Accepts both mammogram (dark) and ultrasound (bright)
-                 Rejects: color skin photos, ECG paper (smooth + bright)
-          ECG:   brightness > 0.55 OR bright_ratio > 0.45
-                 AND NOT skin photo (low skin_tone_ratio, low saturation)
-                 Rejects: dark mammograms, skin photos
-                 (col_var_std helps detect ECG grid but isn't required
-                 because many ECG printouts lack the grid pattern)
-
-        Args:
-            img_array: numpy array (H, W, C) normalized to [0, 1]
-            expected_type: str - 'skin', 'xray', 'breast', 'heart'
-
-        Returns:
-            dict with validation results
-        """
-        stats = self.analyze_image_statistics(img_array)
-
-        # ── Derived stats ─────────────────────────────────────────
-        is_grayscale  = stats.get('is_grayscale', True)
-        rgb_diff      = stats.get('rgb_variance', 0.0)
-        brightness    = stats.get('overall_brightness', 0.5)
-        dark_ratio    = stats.get('dark_region_ratio', 0.0)
-        bright_ratio  = stats.get('bright_region_ratio',
-                                   stats.get('overall_brightness', 0.5))
-        skin_ratio    = stats.get('skin_tone_ratio', 0.0)
-        mean_sat      = stats.get('mean_saturation', 0.0)
-        edge_int      = stats.get('edge_intensity', 0.05)
-        edge_dens     = stats.get('edge_density', 0.05)
-        hist_peak     = stats.get('histogram_peak', 0.1)
-        col_var_std   = stats.get('col_var_std', 0.0)
-
-        def _reject(message, suggestion, confidence=0.85):
-            return {
-                'is_valid': False,
-                'predicted_type': 'Unknown',
-                'predicted_code': 'other',
-                'expected_type': expected_type,
-                'confidence': confidence,
-                'message': message,
-                'suggestion': suggestion,
-                'image_stats': stats
-            }
-
-        def _accept(label, code, confidence=0.80):
-            return {
-                'is_valid': True,
-                'predicted_type': label,
-                'predicted_code': code,
-                'expected_type': expected_type,
-                'confidence': confidence,
-                'message': 'Image type validated successfully.',
-                'image_stats': stats
-            }
-
-        et = expected_type.lower()
-
-        # ── SKIN LESION ──────────────────────────────────────────
-        # Real dermoscopy photos are:
-        #   - Color (not grayscale)
-        #   - Moderate brightness (not paper-white like ECG)
-        #   - Have skin tones OR moderate color variance
-        #   - Have some texture (lesions/hair/skin)
-        if et == 'skin':
-            if is_grayscale or rgb_diff < 0.05:
-                return _reject(
-                    'This appears to be a grayscale image. Skin lesion photos must be in color.',
-                    'Please upload a COLOR photograph of the skin lesion or mole.'
-                )
-            if brightness > 0.85 and bright_ratio > 0.55:
-                return _reject(
-                    'This image is too bright — it looks like an ECG printout or document, not a skin photo.',
-                    'Please upload a close-up color photo of the skin lesion or mole.'
-                )
-            # POLISHED: must have EITHER skin tone OR color variance
-            # (dermoscopy may have dark lesions on dark skin with no skin-tone pixels)
-            if skin_ratio < 0.05 and rgb_diff < 0.06 and mean_sat < 0.08:
-                return _reject(
-                    'This image lacks the warm skin tones expected in a skin lesion photo.',
-                    'Please upload a close-up color photo of the skin lesion or mole.'
-                )
-            # POLISHED: require some texture (edge_density)
-            # Real skin photos have texture from pores, hair, lesion borders.
-            # Smooth color images are usually diagrams/illustrations.
-            if edge_dens < 0.03 and edge_int < 0.03:
-                return _reject(
-                    'This image is too smooth — it does not look like a real skin photo.',
-                    'Please upload a close-up color photo of the skin lesion or mole.'
-                )
-            return _accept('Skin Lesion/Dermoscopy', 'skin_lesion')
-
-        # ── CHEST X-RAY ──────────────────────────────────────────
-        # Real chest X-rays are:
-        #   - Grayscale (or very low RGB variance)
-        #   - Brightness 0.20-0.70 (lungs visible, not pure black or white)
-        #   - Have moderate dark regions (lung area)
-        #   - Not skin-toned, not bright like ECG paper
-        elif et in ('xray', 'pneumonia'):
-            if not is_grayscale and rgb_diff > 0.08:
-                if skin_ratio > 0.15:
-                    return _reject(
-                        'This appears to be a color skin photo, not a chest X-ray.',
-                        'Please upload a grayscale chest X-ray image.'
-                    )
-                if bright_ratio > 0.50 and mean_sat < 0.10:
-                    return _reject(
-                        'This appears to be an ECG or document, not a chest X-ray.',
-                        'Please upload a grayscale chest X-ray image.'
-                    )
-            if brightness < 0.18:
-                return _reject(
-                    'This image is too dark to be a chest X-ray — it looks like a mammogram.',
-                    'Please upload a chest X-ray. Use the Breast Cancer tool for mammograms.'
-                )
-            if brightness > 0.78 and bright_ratio > 0.55:
-                return _reject(
-                    'This image looks like an ECG printout, not a chest X-ray.',
-                    'Please upload a chest X-ray image.'
-                )
-            # POLISHED: very low dark ratio means no lung field visible
-            # (could be ECG paper with no chest content)
-            if dark_ratio < 0.05 and brightness > 0.65:
-                return _reject(
-                    'This image lacks the lung-field dark regions expected in a chest X-ray.',
-                    'Please upload a chest X-ray image.'
-                )
-            return _accept('Chest X-Ray', 'xray_chest')
-
-        # ── MAMMOGRAM / BREAST SCAN ──────────────────────────────
-        # Real breast images (mammogram OR ultrasound) are:
-        #   - Grayscale (or very low RGB variance)
-        #   - Not skin-toned
-        #   - Not too smooth + bright (that's ECG paper)
-        # Accepts wide brightness range: mammogram is dark, ultrasound is bright
-        elif et == 'breast':
-            if not is_grayscale and rgb_diff > 0.08:
-                if skin_ratio > 0.15:
-                    return _reject(
-                        'This appears to be a color skin photo, not a mammogram.',
-                        'Please upload a mammogram or breast ultrasound image.'
-                    )
-                if bright_ratio > 0.50:
-                    return _reject(
-                        'This appears to be an ECG or document, not a mammogram.',
-                        'Please upload a mammogram image.'
-                    )
-            # POLISHED: improved rejection of ECG paper.
-            # ECG paper is BRIGHT (brightness > 0.7) AND SMOOTH (edge_intensity < 0.035)
-            # AND has high histogram peak (lots of white pixels).
-            # Ultrasound is bright too BUT has grainy speckle texture
-            # (edge_intensity > 0.05 from tissue noise).
-            if (brightness > 0.70 and edge_int < 0.035
-                and hist_peak > 0.30):
-                return _reject(
-                    'This image looks like an ECG printout or document, not an ultrasound/mammogram.',
-                    'Please upload a mammogram or breast ultrasound image.'
-                )
-            # POLISHED: also reject images that look like chest X-rays
-            # (X-rays have specific lung-field pattern with brightness 0.30-0.55
-            # AND moderate dark_ratio 0.20-0.50 AND edge_density 0.05-0.15)
-            if (0.30 < brightness < 0.55
-                and 0.20 < dark_ratio < 0.50
-                and edge_int > 0.04 and edge_int < 0.12
-                and hist_peak < 0.20):
-                return _reject(
-                    'This image looks like a chest X-ray, not a breast scan.',
-                    'Please upload a mammogram or breast ultrasound image.'
-                )
-            return _accept('Mammogram/Breast Ultrasound', 'mammogram')
-
-        # ── ECG / HEART SCAN ─────────────────────────────────────
-        # Real ECG printouts are:
-        #   - Bright background (white or pink grid paper)
-        #   - Low saturation (not a colorful photo)
-        #   - Not skin-toned
-        #   - Not a chest X-ray (not dark with lung pattern)
-        elif et in ('heart', 'ecg'):
-            if not is_grayscale and skin_ratio > 0.25 and mean_sat > 0.30:
-                return _reject(
-                    'This appears to be a skin photo, not an ECG or heart scan.',
-                    'Please upload an ECG printout or echocardiogram image.'
-                )
-            if brightness < 0.20 and dark_ratio > 0.50:
-                return _reject(
-                    'This image looks like a mammogram, not an ECG or heart scan.',
-                    'Please upload an ECG printout or echocardiogram.'
-                )
-            if is_grayscale and 0.20 < brightness < 0.60 and bright_ratio < 0.10:
-                return _reject(
-                    'This image looks like a chest X-ray, not an ECG or heart scan.',
-                    'Please upload an ECG printout. Use the Chest X-Ray tool for X-rays.'
-                )
-            # POLISHED: explicit accept for bright ECG paper.
-            # ECG paper is bright (>0.55) OR has high bright_ratio (>0.45).
-            # If both fail, it's probably not an ECG.
-            if brightness < 0.50 and bright_ratio < 0.30:
-                return _reject(
-                    'This image is too dark to be an ECG printout — ECGs have a bright background.',
-                    'Please upload an ECG printout image.'
-                )
-            return _accept('ECG/Heart Scan', 'ecg')
-
-        # Unknown expected type — pass through
-        return _accept('Unknown', 'other', confidence=0.5)
+        return validate_image_type(img_array, expected_type)
 
 
-def create_validator_model(input_shape=(224, 224, 3), num_classes=5):
-    """Create a lightweight CNN for image type classification"""
-    
-    base_model = keras.applications.MobileNetV2(
-        input_shape=input_shape,
-        include_top=False,
-        weights='imagenet'
-    )
-    base_model.trainable = False
-    
-    model = models.Sequential([
-        base_model,
-        layers.GlobalAveragePooling2D(),
-        layers.BatchNormalization(),
-        layers.Dense(256, activation='relu', kernel_regularizer=regularizers.l2(0.01)),
-        layers.Dropout(0.5),
-        layers.Dense(128, activation='relu', kernel_regularizer=regularizers.l2(0.01)),
-        layers.Dropout(0.3),
-        layers.Dense(num_classes, activation='softmax')
-    ])
-    
-    model.compile(
-        optimizer=Adam(learning_rate=0.001),
-        loss='categorical_crossentropy',
-        metrics=['accuracy']
-    )
-    
-    return model
-
-
-def generate_synthetic_validation_data(n_samples_per_class=200, img_size=224):
-    """
-    Generate synthetic training data for image type classifier.
-    In production, you'd use real samples from each category.
-    """
-    print("⚠ Generating synthetic validation training data...")
-    print("  For best results, collect real samples of each image type.")
-    
-    np.random.seed(42)
-    X = []
-    y = []
-    
-    for class_idx in range(5):
-        for _ in range(n_samples_per_class):
-            if class_idx == 0:  # Skin lesion - colorful, skin-toned
-                img = np.random.rand(img_size, img_size, 3) * 0.3
-                # Add skin tone base
-                img[:,:,0] += 0.4  # More red
-                img[:,:,1] += 0.25  # Some green
-                img[:,:,2] += 0.15  # Less blue
-                # Add lesion spot
-                cx, cy = img_size//2 + np.random.randint(-30, 30), img_size//2 + np.random.randint(-30, 30)
-                for i in range(img_size):
-                    for j in range(img_size):
-                        dist = np.sqrt((i-cx)**2 + (j-cy)**2)
-                        if dist < 40:
-                            img[i, j] = [0.3 + np.random.rand()*0.2, 0.15, 0.1]
-                
-            elif class_idx == 1:  # X-ray - grayscale, dark regions
-                gray = np.random.rand(img_size, img_size) * 0.3 + 0.3
-                # Add lung-like dark regions
-                cx1, cx2 = img_size//3, 2*img_size//3
-                cy = img_size//2
-                for i in range(img_size):
-                    for j in range(img_size):
-                        dist1 = np.sqrt((i-cy)**2 + (j-cx1)**2)
-                        dist2 = np.sqrt((i-cy)**2 + (j-cx2)**2)
-                        if dist1 < 50 or dist2 < 50:
-                            gray[i, j] *= 0.5
-                img = np.stack([gray]*3, axis=-1)
-                
-            elif class_idx == 2:  # Mammogram - grayscale, dark background
-                gray = np.random.rand(img_size, img_size) * 0.2
-                # Add bright tissue region
-                cx, cy = img_size//2 + np.random.randint(-20, 20), img_size//2
-                for i in range(img_size):
-                    for j in range(img_size):
-                        dist = np.sqrt((i-cy)**2 + (j-cx)**2)
-                        if dist < 60:
-                            gray[i, j] = 0.5 + np.random.rand() * 0.3
-                img = np.stack([gray]*3, axis=-1)
-                
-            elif class_idx == 3:  # ECG - light background, wave patterns
-                img = np.ones((img_size, img_size, 3)) * 0.9
-                # Add grid
-                for i in range(0, img_size, 20):
-                    img[i:i+1, :] = [0.8, 0.85, 0.8]
-                    img[:, i:i+1] = [0.8, 0.85, 0.8]
-                # Add ECG wave
-                wave_y = img_size // 2
-                for x in range(img_size):
-                    wave_offset = int(30 * np.sin(x * 0.1) * np.exp(-((x % 50) - 25)**2 / 100))
-                    y_pos = wave_y + wave_offset
-                    if 0 <= y_pos < img_size:
-                        img[max(0, y_pos-1):min(img_size, y_pos+2), x] = [0.1, 0.1, 0.1]
-                
-            else:  # Other - random patterns
-                img = np.random.rand(img_size, img_size, 3)
-            
-            # Ensure valid range
-            img = np.clip(img, 0, 1).astype(np.float32)
-            X.append(img)
-            y.append(class_idx)
-    
-    X = np.array(X)
-    y = np.array(y)
-    
-    # Shuffle
-    indices = np.random.permutation(len(X))
-    X, y = X[indices], y[indices]
-    
-    print(f"  ✓ Generated {len(X)} synthetic images")
-    return X, y
-
-
-def train_validator_model():
-    """
-    Train the image type validator model.
-
-    ⚠️  WARNING: This function trains on SYNTHETIC data which does NOT
-    generalise to real medical images.  The trained model will classify
-    real chest X-rays, mammograms, and ECGs as "Non-Medical/Unrecognized"
-    with high confidence (as seen in testing).
-
-    The ImageValidator.validate_image() method now uses rule-based statistics
-    instead of this ML model, so training here has no effect on validation.
-
-    To properly train this model you need REAL labelled samples:
-      - Class 0 (skin):  ~500+ dermoscopy images (e.g. ISIC dataset)
-      - Class 1 (xray):  ~500+ chest X-ray images (e.g. NIH ChestX-ray14)
-      - Class 2 (mammo): ~500+ mammogram images   (e.g. CBIS-DDSM)
-      - Class 3 (ecg):   ~500+ ECG printout images
-      - Class 4 (other): ~500+ random non-medical images
-
-    Skipping ML training — rule-based validator is active and working.
-    """
-    print("\n" + "=" * 60)
-    print("  IMAGE TYPE VALIDATOR")
-    print("=" * 60)
-    print("  ℹ️  Skipping ML model training.")
-    print("  The validator uses a rule-based approach calibrated on real")
-    print("  medical image statistics. No synthetic training needed.")
-    print("  ✓ Image Validator Ready (rule-based mode)")
-    print("=" * 60)
-    return None
-
-    # ── UNREACHABLE: kept for reference if you collect real training data ──
-    if not TF_AVAILABLE:
-        print("❌ TensorFlow required")
-        return None
-    
-    print("\n" + "=" * 60)
-    print("  IMAGE TYPE VALIDATOR - TRAINING")
-    print("=" * 60)
-    
-    # Generate synthetic data (replace with real data collection)
-    X, y = generate_synthetic_validation_data(200, IMG_SIZE)
-    
-    # One-hot encode
-    y_onehot = to_categorical(y, num_classes=5)
-    
-    # Split
-    from sklearn.model_selection import train_test_split
-    X_train, X_test, y_train, y_test = train_test_split(
-        X, y_onehot, test_size=0.2, random_state=42, stratify=y
-    )
-    
-    print(f"\n  Training: {len(X_train)}, Test: {len(X_test)}")
-    
-    # Create model
-    model = create_validator_model()
-    
-    # Callbacks
-    callbacks = [
-        EarlyStopping(monitor='val_loss', patience=5, restore_best_weights=True),
-        ModelCheckpoint(VALIDATOR_MODEL_PATH, monitor='val_accuracy', save_best_only=True)
-    ]
-    
-    # Data augmentation
-    datagen = ImageDataGenerator(
-        rotation_range=15,
-        width_shift_range=0.1,
-        height_shift_range=0.1,
-        horizontal_flip=True,
-        zoom_range=0.1
-    )
-    
-    # Train
-    print("\n  Training validator model...")
-    history = model.fit(
-        datagen.flow(X_train, y_train, batch_size=32),
-        epochs=15,
-        validation_data=(X_test, y_test),
-        callbacks=callbacks,
-        verbose=1
-    )
-    
-    # Evaluate
-    results = model.evaluate(X_test, y_test, verbose=0)
-    print(f"\n  ✓ Validation Accuracy: {results[1]*100:.1f}%")
-    
-    # Save
-    model.save(VALIDATOR_MODEL_PATH)
-    print(f"  ✓ Model saved: {VALIDATOR_MODEL_PATH}")
-    
-    # Save config
-    config = {
-        'model_path': VALIDATOR_MODEL_PATH,
-        'input_shape': [IMG_SIZE, IMG_SIZE, 3],
-        'num_classes': 5,
-        'classes': {str(k): v for k, v in IMAGE_TYPES.items()},
-        'accuracy': float(results[1])
-    }
-    
-    with open(VALIDATOR_CONFIG_PATH, 'w') as f:
-        json.dump(config, f, indent=2)
-    
-    return model
-
-
-# Singleton validator instance
 _validator_instance = None
 
+
 def get_validator():
-    """Get or create the image validator instance"""
     global _validator_instance
     if _validator_instance is None:
-        _validator_instance = ImageValidator(VALIDATOR_MODEL_PATH)
+        _validator_instance = ImageValidator()
     return _validator_instance
 
 
 def validate_medical_image(img_array, expected_type):
-    """
-    Convenience function to validate a medical image.
-    
-    Args:
-        img_array: numpy array (H, W, C) normalized to [0, 1]
-        expected_type: str - 'skin', 'xray', 'breast', 'heart'
-    
-    Returns:
-        dict with validation results
-    """
-    validator = get_validator()
-    return validator.validate_image(img_array, expected_type)
+    return validate_image_type(img_array, expected_type)
 
 
-if __name__ == '__main__':
-    print("\n" + "=" * 60)
-    print("  Image Validator Training & Testing")
-    print("=" * 60)
-    
-    # Train the model
-    model = train_validator_model()
-    
-    # Test the validator
-    print("\n" + "-" * 40)
-    print("  Testing Validator...")
-    print("-" * 40)
-    
-    validator = ImageValidator(VALIDATOR_MODEL_PATH)
-    
-    # Create test images
-    test_cases = [
-        ('skin', np.random.rand(224, 224, 3) * 0.3 + np.array([0.4, 0.25, 0.15])),
-        ('xray', np.stack([np.random.rand(224, 224) * 0.3 + 0.3]*3, axis=-1)),
-        ('breast', np.stack([np.random.rand(224, 224) * 0.2]*3, axis=-1)),
-    ]
-    
-    for expected, img in test_cases:
-        img = np.clip(img, 0, 1).astype(np.float32)
-        result = validator.validate_image(img, expected)
-        print(f"\n  Expected: {expected}")
-        print(f"  Valid: {result['is_valid']}")
-        print(f"  Predicted: {result['predicted_type']}")
-        print(f"  Confidence: {result['confidence']:.2f}")
-    
-    print("\n" + "=" * 60)
-    print("  ✓ Image Validator Ready!")
-    print("=" * 60)
+def train_validator_model():
+    """No-op: the gate is rule/threshold based, no synthetic training needed."""
+    print("Image validator: rule-based mode (no training required).")
+    return None
+
+
+if __name__ == "__main__":
+    rng = np.random.default_rng(0)
+    demo = {
+        "skin": np.clip(rng.random((224, 224, 3)) * 0.4 + np.array([0.45, 0.30, 0.22]), 0, 1),
+        "xray": np.repeat((rng.random((224, 224)) * 0.3 + 0.35)[..., None], 3, axis=-1),
+    }
+    for expected, img in demo.items():
+        res = validate_image_type(img, expected)
+        print(expected, "->", res["is_valid"], "|", res["message"])

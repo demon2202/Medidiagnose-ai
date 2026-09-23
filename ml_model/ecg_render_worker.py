@@ -1,10 +1,3 @@
-"""Lightweight ECG render worker for multiprocessing.
-
-Imported by spawned Pool workers, so it must NOT import TensorFlow (each
-worker re-imports this module at spawn time on Windows, and importing TF in
-16 processes at once deadlocks/slow-boots the pool to a crawl).
-"""
-
 import os
 import sys
 import numpy as np

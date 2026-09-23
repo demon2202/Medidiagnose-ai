@@ -1,35 +1,3 @@
-"""
-image_classification.py — skin cancer + pneumonia training (v3)
-================================================================
-
-WHY v2 STILL FAILED (28.6% skin / 38.9% pneumonia):
-
-* Pneumonia: class_weight='balanced' on a majority-POSITIVE dataset pushed
-  every misclassification cost onto the minority Normal class, so the model
-  collapsed to "always Normal" (0 TP). The class weights are REMOVED — the
-  2-class softmax with a prior-matched output bias is enough.
-* Skin: the pipeline fought itself (augmentation generator + class weights +
-  a Lambda rescale layer that serializes badly in Keras 3). Training now uses
-  the shared recipe in medidiagnose/train_utils.py: Keras Random*
-  augmentation layers inside the model, Rescaling instead of Lambda,
-  two-phase fine-tuning, EarlyStopping on val_accuracy.
-* Both models now train on the SAME [0, 1] inputs that backend/server.py
-  feeds at inference (see medidiagnose/inference_utils.py), so the
-  train/serve gap that made accuracy look random is gone.
-
-Expected test accuracy after retraining:
-  - Skin cancer  (HAM10000, 7-class):  ~80%+
-  - Pneumonia    (Chest X-ray, binary): ~90%+
-
-Interfaces preserved (server.py compatibility):
-  - SKIN_MODEL_PATH, PNEUMONIA_MODEL_PATH, *_CONFIG_PATH unchanged
-  - HAM10000_CLASSES, CLASS_NAMES, CLASS_INFO, PNEUMONIA_CLASSES unchanged
-  - preprocess_image_for_skin / preprocess_image_for_pneumonia unchanged
-  - predict_skin_cancer / predict_pneumonia unchanged
-  - get_demo_skin_result / get_demo_pneumonia_result unchanged
-  - main() accepts CLI arg '1', '2', or '3' (skin / pneumonia / both)
-"""
-
 import os
 import numpy as np
 import json
@@ -555,23 +523,17 @@ def load_ham10000_data(img_size=224, oversample_target=1100):
     metadata = pd.read_csv(metadata_path)
     print(f"  Total entries: {len(metadata)}")
 
-    image_dirs = []
-    for folder in ['HAM10000_images_part_1', 'HAM10000_images_part_2',
-                    'HAM10000_images', 'images', 'train', 'all_images']:
-        path = os.path.join(ham_dir, folder)
-        if os.path.exists(path):
-            image_dirs.append(path)
-    if not image_dirs:
-        imgs = glob.glob(os.path.join(ham_dir, '*.jpg')) + glob.glob(os.path.join(ham_dir, '*.png'))
-        if imgs:
-            image_dirs.append(ham_dir)
-        else:
-            print("❌ No image directories found"); return None
-
+    # Recursive search: images may live in class-labelled subfolders (e.g.
+    # HAM10000/<dx>/) after dataset reorganization, or in the original
+    # part_1/part_2 folders. Keyed by filename stem, so the metadata lookup
+    # below is unaffected by folder layout.
     image_paths = {}
-    for d in image_dirs:
-        for p in glob.glob(os.path.join(d, '*.jpg')) + glob.glob(os.path.join(d, '*.jpeg')) + glob.glob(os.path.join(d, '*.png')):
-            image_paths[os.path.splitext(os.path.basename(p))[0]] = p
+    for p in (glob.glob(os.path.join(ham_dir, '**', '*.jpg'), recursive=True) +
+              glob.glob(os.path.join(ham_dir, '**', '*.jpeg'), recursive=True) +
+              glob.glob(os.path.join(ham_dir, '**', '*.png'), recursive=True)):
+        image_paths[os.path.splitext(os.path.basename(p))[0]] = p
+    if not image_paths:
+        print("[!] No image directories found"); return None
     print(f"  Found {len(image_paths)} images")
 
     X, y = [], []
@@ -637,8 +599,8 @@ PAD20_CLASSES = {
 }
 
 
-def load_skin_combined_data(img_size=224, nv_train_cap=2500,
-                            oversample_target=1200):
+def load_skin_combined_data(img_size=224, nv_train_cap=2200,
+                            oversample_target=1500):
     """Load HAM10000 + PAD-UFES-20 (Dataset/Skin_Cancer) as one training set.
 
     PAD-UFES-20 is smartphone (non-dermoscopy) photography — the same kind of
@@ -663,13 +625,13 @@ def load_skin_combined_data(img_size=224, nv_train_cap=2500,
     ham_dir = os.path.join(DATASET_DIR, 'HAM10000')
     meta_path = os.path.join(ham_dir, 'HAM10000_metadata.csv')
     if os.path.exists(meta_path):
+        # Recursive search: class-labelled subfolders (HAM10000/<dx>/) or the
+        # original part_1/part_2 folders.
         image_paths = {}
-        for folder in ['HAM10000_images_part_1', 'HAM10000_images_part_2',
-                        'HAM10000_images', 'images']:
-            d = os.path.join(ham_dir, folder)
-            if os.path.isdir(d):
-                for p in glob.glob(os.path.join(d, '*.jpg')):
-                    image_paths[os.path.splitext(os.path.basename(p))[0]] = p
+        for p in (glob.glob(os.path.join(ham_dir, '**', '*.jpg'), recursive=True) +
+                  glob.glob(os.path.join(ham_dir, '**', '*.jpeg'), recursive=True) +
+                  glob.glob(os.path.join(ham_dir, '**', '*.png'), recursive=True)):
+            image_paths[os.path.splitext(os.path.basename(p))[0]] = p
         ham_meta = pd.read_csv(meta_path)
         n = 0
         for _, row in ham_meta.iterrows():
@@ -875,16 +837,17 @@ def train_skin_cancer_model():
 
     print("\n🔧 Creating MobileNetV2 model (7-class skin cancer)...")
     model, base_model = TU.build_model(
-        num_classes=7, channels=3, size=IMG_SIZE, dropout=0.3,
+        num_classes=7, channels=3, size=IMG_SIZE, dropout=0.35,
         augment='skin', name='skin_mobilenetv2')
-    TU.compile_model(model, 1e-3)
+    # label_smoothing 0.1 + higher dropout reduces 99% overconfidence, helps MEL/df recall
+    TU.compile_model(model, 1e-3, label_smoothing=0.10)
     model.summary()
 
     model = TU.train_two_phase(
         model, base_model, X_train, y_train, X_val, y_val,
         class_weight=class_weight, batch_size=32, model_path=SKIN_MODEL_PATH,
-        phase1_epochs=20, phase2_epochs=20, unfreeze='all', phase2_lr=3e-5,
-        phase2_schedule='cosine', tag='skin')
+        phase1_epochs=22, phase2_epochs=22, unfreeze='all', phase2_lr=3e-5,
+        phase2_schedule='cosine', tag='skin', label_smoothing=0.10)
 
     metrics = TU.evaluate_model(model, X_test, y_test, CLASS_NAMES, tag='skin')
 
@@ -915,53 +878,62 @@ def train_skin_cancer_model():
 def train_pneumonia_model():
     """
     Train pneumonia detection: MobileNetV2 transfer learning via the shared
-    two-phase recipe.
+    two-phase recipe — FIX v4 (2026-09-17).
 
-    Key changes vs v2:
-      - NO class_weight (majority-positive dataset — weights caused the
-        all-Normal collapse with 0 TP)
-      - NO CLAHE (server.py inference uses plain resize+/255 — train==serve)
-      - Output bias initialized to the class prior (Pneumonia is majority)
-      - 2-class softmax, standard cross-entropy
-    Expected test accuracy: ~90%+ on the official chest_xray test split.
+    WHY v3 STILL FAILED (your 100% bug):
+      * v3 used `output_bias = log(prior)` where pneumonia is 74% majority.
+        That bias alone makes the model predict Pneumonia 74% *before seeing
+        any image*. Training then fine-tunes around that prior, so any
+        grayscale image (skin converted to gray, normal X-ray) gets pushed
+        to Pneumonia with 0.99+ softmax — exactly your `100.0%` curl result.
+        Confusion: TP 427 / FN 3 = 99.3% sens, TN 178 / FP 96 = 65% spec.
+
+    FIX v4:
+      * NO output_bias (zero init) — let the model learn from pixels, not prior.
+      * sqrt-balanced class_weight: {Normal: ~1.35, Pneumonia: ~0.65} (softens
+        full balanced 2.1 → 0.68 which previously collapsed to all-Normal).
+        sqrt keeps both classes honest without over-penalizing Normal.
+      * NO CLAHE (train==serve plain resize/255)
+      * 2-class softmax, standard cross-entropy
+    Expected: ~88-92% acc, sens ~90%, spec ~82% (balanced, no 99.9% illusion).
     """
     if not TF_AVAILABLE:
         print("❌ TensorFlow required"); return None
 
     print("\n" + "=" * 70)
-    print("  PNEUMONIA MODEL — MobileNetV2 two-phase (v3)")
-    print("  Fix: no class_weight, no CLAHE, prior-matched output bias")
+    print("  PNEUMONIA MODEL — MobileNetV2 two-phase (v4 FIX 2026-09-17)")
+    print("  Fix: zero bias + sqrt-balanced weight, no CLAHE")
     print("=" * 70)
 
     data = load_chest_xray_data(IMG_SIZE)
     if data is None:
         return None
-    X_train, X_val, y_train, y_val, X_test, y_test, _class_weight = data
+    X_train, X_val, y_train, y_val, X_test, y_test, _ = data
 
-    n_pos = int(np.sum(y_train == 1))
-    n_neg = int(len(y_train) - n_pos)
-    p_neg = max(n_neg / (n_pos + n_neg), 1e-7)
-    p_pos = max(n_pos / (n_pos + n_neg), 1e-7)
-    output_bias = [np.log(p_neg), np.log(p_pos)]
-    print(f"  Output bias (class log-priors): neg={output_bias[0]:.3f}, "
-          f"pos={output_bias[1]:.3f}  (pos={n_pos}, neg={n_neg})")
+    # ── FIX: zero bias + sqrt-balanced weight (not pure balanced, not None) ──
+    from sklearn.utils.class_weight import compute_class_weight
+    cw = compute_class_weight('balanced', classes=np.array([0, 1]), y=y_train)
+    cw = np.sqrt(cw)  # softens: was [0.68, 1.91] → now [0.82, 1.38]; gentle enough
+    class_weight = {0: float(cw[0]), 1: float(cw[1])}
+    print(f"  Class weight (sqrt-balanced): Normal={class_weight[0]:.3f}, Pneumonia={class_weight[1]:.3f}")
+    print(f"  Output bias: [0.0, 0.0] (no prior — fixed)")
 
-    print("\n🔧 Creating MobileNetV2 model (2-class softmax)...")
+    print("\n🔧 Creating MobileNetV2 model (2-class softmax, zero bias)...")
     model, base_model = TU.build_model(
         num_classes=2, channels=1, size=IMG_SIZE, dropout=0.3,
         augment='xray', name='pneumonia_mobilenetv2')
 
-    # Set the output layer's bias to the class log-priors
+    # Ensure zero bias (default is zeros — keep it)
     out_layer = model.get_layer('pneumonia_mobilenetv2_output')
-    weights = out_layer.get_weights()
-    out_layer.set_weights([weights[0], np.array(output_bias, dtype=np.float32)])
+    w, b = out_layer.get_weights()
+    out_layer.set_weights([w, np.zeros_like(b)])
 
     TU.compile_model(model, 1e-3)
     model.summary()
 
     model = TU.train_two_phase(
         model, base_model, X_train, y_train, X_val, y_val,
-        class_weight=None, batch_size=32, model_path=PNEUMONIA_MODEL_PATH,
+        class_weight=class_weight, batch_size=32, model_path=PNEUMONIA_MODEL_PATH,
         phase1_epochs=15, phase2_epochs=10, unfreeze=60, tag='pneumonia')
 
     metrics = TU.evaluate_model(model, X_test, y_test, ['Normal', 'Pneumonia'],

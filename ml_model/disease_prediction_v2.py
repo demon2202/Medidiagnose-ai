@@ -1,5 +1,12 @@
 import os
 import sys
+
+# Windows 11 (24H2) removed wmic.exe — joblib's loky process backend crashes in
+# _count_physical_cores() calling `wmic CPU Get NumberOfCores` (CreateProcess
+# error). Force the threading backend BEFORE any sklearn/joblib use.
+os.environ.setdefault('JOBLIB_BACKEND', 'threading')
+os.environ.setdefault('LOKY_MAX_CPU_COUNT', str(os.cpu_count() or 4))
+
 import json
 import argparse
 import pandas as pd
@@ -651,7 +658,9 @@ def train_ensemble(X, y, symptom_list):
       confusion — Fungal infection had 50% recall, now expected 70%+)
     - MIN_SAMPLES_PER_DISEASE raised from 200 to 400 (more augmentation
       for rare diseases)
-    - Same VotingClassifier(RF+ET+GB+NB) architecture (already works)
+    - v5 (2026-09-18): VotingClassifier(HGB+RF+LR) — HGB dominant for
+      sharper, more accurate probabilities (top-1 was stuck at 30-40%)
+      with the old 4-way soft-vote)
     - Cross-validation on full (non-deduplicated) weighted data preserved
 
     The model object will have:
@@ -737,36 +746,32 @@ def train_ensemble(X, y, symptom_list):
     selected_symptom_list = symptom_list
 
     # --- Build ensemble ---
-    # IMPROVED vs old version:
-    # - RF: n_estimators=300 (was 200), deeper trees for more discriminative power
-    # - ET: n_estimators=200 (was 150)
-    # - GB: reduced weight (slow and doesn't help much with >30 classes)
-    # - NB: weight=1 (it gives flat, over-smoothed probabilities for rare diseases)
-    # - Ensemble weights heavily favor RF+ET which give sharper predictions
+    # FIX v5 (2026-09-18): the old RF+ET+GB+NB soft-vote AVERAGED four
+    # different probability scales, which flattened top-1 confidence to
+    # 30-40% even on clear cases. HistGradientBoosting is the strongest
+    # single estimator for this tabular task (sharper + more accurate),
+    # so it now dominates the vote; RF (balanced) covers minority
+    # diseases; LogisticRegression adds a stable linear baseline.
+    from sklearn.ensemble import HistGradientBoostingClassifier
+    from sklearn.linear_model import LogisticRegression
+
+    hgb = HistGradientBoostingClassifier(
+        max_iter=600, learning_rate=0.05, max_depth=7,
+        min_samples_leaf=8, l2_regularization=1.0, random_state=42
+    )
+
     rf = RandomForestClassifier(
-        n_estimators=300, max_depth=25, min_samples_split=2,
-        min_samples_leaf=1, max_features='sqrt', bootstrap=True,
-        random_state=42, n_jobs=-1, class_weight='balanced'
+        n_estimators=400, max_depth=None, min_samples_split=2,
+        min_samples_leaf=2, max_features='sqrt', bootstrap=True,
+        random_state=42, n_jobs=1, class_weight='balanced'
     )
 
-    et = ExtraTreesClassifier(
-        n_estimators=200, max_depth=25, min_samples_split=2,
-        min_samples_leaf=1, max_features='sqrt', bootstrap=True,
-        random_state=42, n_jobs=-1, class_weight='balanced'
-    )
-
-    gb = GradientBoostingClassifier(
-        n_estimators=100, learning_rate=0.1, max_depth=5,
-        min_samples_split=2, min_samples_leaf=1, subsample=0.8,
-        random_state=42
-    )
-
-    nb = MultinomialNB(alpha=0.1)  # Lower alpha = sharper predictions
+    lr = LogisticRegression(max_iter=2000, C=1.0, random_state=42)
 
     ensemble = VotingClassifier(
-        estimators=[('rf', rf), ('et', et), ('gb', gb), ('nb', nb)],
+        estimators=[('hgb', hgb), ('rf', rf), ('lr', lr)],
         voting='soft',
-        weights=[5, 4, 2, 1]  # RF and ET dominate; GB and NB are secondary
+        weights=[5, 3, 1]  # HGB dominates; RF for rare diseases; LR baseline
     )
 
     print("   Training... (this may take 2-3 minutes with larger dataset)")
@@ -796,7 +801,7 @@ def train_ensemble(X, y, symptom_list):
     n_splits = min(5, min_samples)
     if n_splits >= 2 and len(X_weighted) > 100:
         cv = StratifiedKFold(n_splits=n_splits, shuffle=True, random_state=42)
-        scores = cross_val_score(ensemble, X_weighted, y_enc, cv=cv, scoring='accuracy', n_jobs=-1)
+        scores = cross_val_score(ensemble, X_weighted, y_enc, cv=cv, scoring='accuracy', n_jobs=1)
         cv_mean, cv_std = float(scores.mean()), float(scores.std())
         print(f"   Cross-Val:  {cv_mean:.4f} (±{cv_std * 2:.4f})")
 
@@ -943,7 +948,7 @@ def save_all(output_dir, model, le, fs, symptom_list, disease_info,
 
     # 5. model_config.json — metadata
     config = {
-        'model_type': 'VotingClassifier(RF+ET+GB+NB)',
+        'model_type': 'VotingClassifier(HGB+RF+LR) v5',
         'voting': 'soft',
         'weights': [4, 3, 3, 1],
         'n_features_in': int(model.n_features_in_),

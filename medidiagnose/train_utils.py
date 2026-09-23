@@ -131,14 +131,34 @@ def make_dataset(X_uint8, y_int, batch_size=32, training=False):
     return ds.batch(batch_size).prefetch(tf.data.AUTOTUNE)
 
 
-def compile_model(model, learning_rate):
+def compile_model(model, learning_rate, label_smoothing=0.0):
     # NOTE: only 'accuracy' — Keras 3's Precision/Recall metrics misread
     # 2-class softmax probabilities as multi-label binary outputs and crash
     # with a shape error. Precision/recall are reported per-class by the
     # sklearn classification report in evaluate_model() instead.
+    # label_smoothing=0.1 reduces 99.9% overconfidence on small medical sets (BUSI/HAM)
+    # TF 2.20 SparseCategoricalCrossentropy doesn't accept label_smoothing -> use custom smoothed loss
+    if label_smoothing > 0:
+        # try native param first (TF 2.13+ supports it), fall back to manual
+        try:
+            loss = keras.losses.SparseCategoricalCrossentropy(from_logits=False, label_smoothing=label_smoothing)
+        except TypeError:
+            def _smoothed_sparse_ce(y_true, y_pred):
+                # y_true: (batch,), y_pred: (batch, num_classes) softmax
+                num_classes = tf.cast(tf.shape(y_pred)[-1], tf.float32)
+                y_true = tf.cast(tf.reshape(y_true, [-1]), tf.int32)
+                y_onehot = tf.one_hot(y_true, depth=tf.shape(y_pred)[-1])
+                smooth_pos = 1.0 - label_smoothing
+                smooth_neg = label_smoothing / num_classes
+                y_smooth = y_onehot * smooth_pos + smooth_neg
+                y_pred = tf.clip_by_value(y_pred, 1e-7, 1.0 - 1e-7)
+                return -tf.reduce_sum(y_smooth * tf.math.log(y_pred), axis=-1)
+            loss = _smoothed_sparse_ce
+    else:
+        loss = 'sparse_categorical_crossentropy'
     model.compile(
         optimizer=keras.optimizers.Adam(learning_rate),
-        loss='sparse_categorical_crossentropy',
+        loss=loss,
         metrics=['accuracy'])
 
 
@@ -168,7 +188,7 @@ def train_two_phase(model, base_model, X_train, y_train, X_val, y_val, *,
                     class_weight=None, batch_size=32, model_path=None,
                     phase1_epochs=20, phase2_epochs=15, unfreeze=100,
                     phase1_lr=1e-3, phase2_lr=1e-5,
-                    phase2_schedule='plateau', tag=''):
+                    phase2_schedule='plateau', tag='', label_smoothing=0.0):
     """Phase 1: frozen backbone, train head. Phase 2: unfreeze top layers.
 
     BatchNorm layers stay frozen in phase 2 (standard practice on small
@@ -187,7 +207,7 @@ def train_two_phase(model, base_model, X_train, y_train, X_val, y_val, *,
 
     print(f'\n[{tag}] Phase 1 — head training (backbone frozen), '
           f'LR={phase1_lr:g}, up to {phase1_epochs} epochs')
-    compile_model(model, phase1_lr)
+    compile_model(model, phase1_lr, label_smoothing=label_smoothing)
     cbs = [keras.callbacks.EarlyStopping(
                monitor='val_accuracy', mode='max', patience=6,
                restore_best_weights=True, verbose=1),
@@ -222,7 +242,24 @@ def train_two_phase(model, base_model, X_train, y_train, X_val, y_val, *,
         opt = keras.optimizers.Adam(lr_sched)
     else:
         opt = keras.optimizers.Adam(phase2_lr)
-    model.compile(optimizer=opt, loss='sparse_categorical_crossentropy',
+    # keep label smoothing for phase 2 as well
+    if label_smoothing > 0:
+        try:
+            _loss2 = keras.losses.SparseCategoricalCrossentropy(from_logits=False, label_smoothing=label_smoothing)
+        except TypeError:
+            def _smoothed2(y_true, y_pred):
+                num_classes = tf.cast(tf.shape(y_pred)[-1], tf.float32)
+                y_true = tf.cast(tf.reshape(y_true, [-1]), tf.int32)
+                y_onehot = tf.one_hot(y_true, depth=tf.shape(y_pred)[-1])
+                smooth_pos = 1.0 - label_smoothing
+                smooth_neg = label_smoothing / num_classes
+                y_smooth = y_onehot * smooth_pos + smooth_neg
+                y_pred = tf.clip_by_value(y_pred, 1e-7, 1.0 - 1e-7)
+                return -tf.reduce_sum(y_smooth * tf.math.log(y_pred), axis=-1)
+            _loss2 = _smoothed2
+    else:
+        _loss2 = 'sparse_categorical_crossentropy'
+    model.compile(optimizer=opt, loss=_loss2,
                   metrics=['accuracy'])
 
     cbs = [keras.callbacks.EarlyStopping(

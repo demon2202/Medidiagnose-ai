@@ -213,7 +213,16 @@ def load_breast_ultrasound_data(img_size=224):
 # ==============================================================================
 
 def train_breast_cancer_model(use_transfer=True, use_6_classes=False):
-    """Train breast ultrasound model with the shared two-phase recipe."""
+    """Train breast ultrasound model with the shared two-phase recipe.
+
+    FIX v4: Honest 3-class only. BUSI has 3 labels (normal/benign/malignant),
+    so 6-class (BI-RADS 1-6) was a phantom — 3 rows always 0. use_6_classes
+    now prints a warning and is ignored.
+    """
+    if use_6_classes:
+        print("\n  ⚠️  6-class requested but BUSI only has 3 labels — ignoring and training honest 3-class.")
+        print("     Use CBIS-DDSM (2620 mammograms) if you need true BI-RADS 3/4/5.")
+        use_6_classes = False
     if not TF_AVAILABLE:
         print("❌ TensorFlow required"); return None
 
@@ -309,9 +318,9 @@ def main():
     print("=" * 70)
 
     print("\nOptions:")
-    print("  1. Train 3-class with transfer learning (RECOMMENDED)")
+    print("  1. Train 3-class with transfer learning (RECOMMENDED — honest)")
     print("  2. Train 3-class with custom ResNet (no pretrained weights)")
-    print("  3. Train 6-class with transfer learning")
+    print("  3. [DEPRECATED] Train 6-class — now forces 3-class (phantom was bug)")
     print("  4. Exit")
 
     choice = '1'
