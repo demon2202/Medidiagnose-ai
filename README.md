@@ -27,7 +27,6 @@ A full-stack medical AI application that combines classical machine learning mod
 - [Project Structure](#-project-structure)
 - [ML Models Deep Dive](#-ml-models-deep-dive)
 - [Datasets Used](#-datasets-used)
-- [Installation](#-installation)
 - [Training the Models](#-training-the-models)
 - [Running the Application](#-running-the-application)
 - [API Reference](#-api-reference)
